@@ -53,8 +53,11 @@ test_trajectory_visualization.png
 *.png
 *.jpg
 *.gif
-*.txt
+file_tree.txt
+Get-FileTree.ps1
 
 # Data files (optional)
 data/scenarios/*.npy
 data/validation/*.csv
+viz_test_debug.txt
+validation_results.txt
