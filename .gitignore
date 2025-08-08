@@ -61,3 +61,6 @@ data/scenarios/*.npy
 data/validation/*.csv
 viz_test_debug.txt
 validation_results.txt
+validation_results_fixed.txt
+volumetric_detection_validation.json
+file_tree.txt

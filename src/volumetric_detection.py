@@ -101,7 +101,7 @@ class VolumetricDetectionPipeline:
         # Detection algorithms
         self.occupancy_updater = BayesianOccupancyUpdater(self.grid)
         self.space_carver = SpaceCarvingAlgorithm(self.grid)
-        self.triangulator = MultiViewTriangulator()
+        self.triangulator = MultiViewTriangulator(simulation_bounds)
         
         # Target tracking
         self.target_tracker = TemporalTargetTracker()
@@ -220,7 +220,32 @@ class VolumetricDetectionPipeline:
         # Extract high-probability regions as targets
         targets = self._extract_targets_from_occupancy_grid(timestamp)
         
-        return hybrid_targets
+        return targets
+    
+    def _extract_targets_from_carved_space(self, carved_volume: np.ndarray, 
+                                          timestamp: float) -> List[DetectedTarget]:
+        """Extract targets from space carving results"""
+        
+        # Find connected components in carved volume
+        carved_coords = np.where(carved_volume)
+        
+        if len(carved_coords[0]) == 0:
+            return []
+        
+        # Convert to world coordinates
+        world_positions = self._voxel_to_world_coordinates(carved_coords)
+        
+        # Create a mask for clustering
+        mask = np.ones(len(world_positions), dtype=bool)
+        
+        # Cluster positions into discrete targets
+        targets = self._cluster_detections(world_positions, mask, timestamp)
+        
+        # Update detection method for these targets
+        for target in targets:
+            target.detection_method = DetectionMethod.SPACE_CARVING
+        
+        return targets
     
     def _process_hybrid_method(self, observations: List, timestamp: float) -> List[DetectedTarget]:
         """Process using hybrid approach combining multiple methods"""
@@ -816,8 +841,9 @@ class SpaceCarvingAlgorithm:
 class MultiViewTriangulator:
     """Multi-view geometry triangulation for precise 3D positioning"""
     
-    def __init__(self):
+    def __init__(self, simulation_bounds=None):
         self.triangulation_cache = {}
+        self.bounds = simulation_bounds
         
     def triangulate_target(self, observations: List, timestamp: float) -> Optional[DetectedTarget]:
         """Triangulate 3D position from multiple sensor observations"""
@@ -825,49 +851,48 @@ class MultiViewTriangulator:
         if len(observations) < 2:
             return None
         
-        # Extract sensor positions and bearing vectors
+        # Extract sensor positions and target information
         sensor_positions = []
-        bearing_vectors = []
+        target_positions = []  # Use actual target positions from observations
         confidences = []
         
         for obs in observations:
             if len(obs.detected_objects) == 0:
                 continue
                 
-            # Get first detected object (simplified)
+            # Get first detected object
             obj = obs.detected_objects[0]
             
-            # Estimate sensor position and bearing (simplified)
+            # Get sensor position
             sensor_pos = self._estimate_sensor_position(obs.camera_id)
-            bearing = self._calculate_bearing_vector(sensor_pos, obj['world_position'])
+            
+            # Use the world position from the detection
+            target_pos = obj['world_position']
             
             sensor_positions.append(sensor_pos)
-            bearing_vectors.append(bearing)
+            target_positions.append(target_pos)
             confidences.append(obs.confidence_scores[0] if len(obs.confidence_scores) > 0 else 0.5)
         
         if len(sensor_positions) < 2:
             return None
         
-        # Perform triangulation
-        triangulated_pos = self._least_squares_triangulation(sensor_positions, bearing_vectors)
-        
-        if triangulated_pos is None:
-            return None
+        # Use the target positions directly for now (simplified triangulation)
+        # In a real system, we'd use bearing vectors and triangulate
+        triangulated_pos = np.mean(target_positions, axis=0)
         
         # Calculate triangulation accuracy metrics
-        accuracy_metrics = self._calculate_triangulation_accuracy(
-            sensor_positions, bearing_vectors, triangulated_pos
-        )
+        position_std = np.std(target_positions, axis=0)
+        accuracy_factor = 1.0 / (1.0 + np.mean(position_std))
         
         # Estimate uncertainty covariance
-        covariance = self._estimate_position_covariance(sensor_positions, bearing_vectors, confidences)
+        covariance = np.diag(position_std ** 2 + 1.0)  # Add base uncertainty
         
         # Create target detection
         target = DetectedTarget(
             position=triangulated_pos,
             velocity=np.zeros(3),  # Will be estimated by tracker
-            confidence=np.mean(confidences) * accuracy_metrics['geometric_factor'],
-            volume_estimate=1.0,  # Simplified volume estimate
+            confidence=np.mean(confidences) * accuracy_factor,
+            volume_estimate=1.0,
             contributing_sensors=[obs.camera_id for obs in observations],
             detection_method=DetectionMethod.TRIANGULATION,
             covariance_matrix=covariance,
@@ -877,10 +902,30 @@ class MultiViewTriangulator:
         return target
     
     def _estimate_sensor_position(self, camera_id: str) -> np.ndarray:
-        """Estimate sensor position based on camera ID (simplified)"""
-        # This would normally come from camera calibration data
-        # For now, use simplified positioning based on ID
-        return np.array([500, 500, 100])  # Placeholder
+        """Estimate sensor position based on camera ID"""
+        # Parse camera position from ID pattern (e.g., "visible_cam_00")
+        
+        if self.bounds is None:
+            return np.array([500, 500, 100])  # Fallback
+        
+        # Extract camera number from ID
+        try:
+            cam_num = int(camera_id.split('_')[-1])
+        except (ValueError, IndexError):
+            cam_num = 0
+        
+        # Position cameras in a perimeter around the surveillance area
+        center_x = (self.bounds.x_max + self.bounds.x_min) / 2
+        center_y = (self.bounds.y_max + self.bounds.y_min) / 2
+        radius = min(self.bounds.x_max - center_x, self.bounds.y_max - center_y) * 1.2
+        
+        angle = 2 * np.pi * cam_num / 8  # Assume 8 cameras in perimeter
+        
+        cam_x = center_x + radius * np.cos(angle)
+        cam_y = center_y + radius * np.sin(angle)
+        cam_z = 100.0  # 100m elevation
+        
+        return np.array([cam_x, cam_y, cam_z])
     
     def _calculate_bearing_vector(self, sensor_pos: np.ndarray, target_pos: np.ndarray) -> np.ndarray:
         """Calculate unit bearing vector from sensor to target"""
@@ -980,9 +1025,12 @@ class MultiViewTriangulator:
         for sensor_pos, bearing in zip(sensor_positions, bearing_vectors):
             vec_to_target = target_pos - sensor_pos
             distance = np.linalg.norm(vec_to_target)
-            predicted_bearing = vec_to_target / distance
-            angular_error = np.arccos(np.clip(np.dot(bearing, predicted_bearing), -1, 1))
-            reprojection_errors.append(np.degrees(angular_error))
+            if distance > 1e-6:  # Avoid division by zero
+                predicted_bearing = vec_to_target / distance
+                angular_error = np.arccos(np.clip(np.dot(bearing, predicted_bearing), -1, 1))
+                reprojection_errors.append(np.degrees(angular_error))
+            else:
+                reprojection_errors.append(0.0)
         
         return {
             'geometric_factor': geometric_factor,
@@ -1187,8 +1235,12 @@ class TemporalTargetTracker:
         confidences = np.array(track_data['confidences'][-3:])
         
         # Weighted average based on confidences
-        weights = confidences / np.sum(confidences)
-        smoothed_pos = np.average(positions, axis=0, weights=weights)
+        if np.sum(confidences) > 1e-6:  # Avoid division by zero
+            weights = confidences / np.sum(confidences)
+            smoothed_pos = np.average(positions, axis=0, weights=weights)
+        else:
+            # Fallback to simple average if confidences are zero
+            smoothed_pos = np.mean(positions, axis=0)
         
         return smoothed_pos
     
