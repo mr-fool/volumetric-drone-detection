@@ -53,6 +53,7 @@ test_trajectory_visualization.png
 *.png
 *.jpg
 *.gif
+*.txt
 
 # Data files (optional)
 data/scenarios/*.npy
