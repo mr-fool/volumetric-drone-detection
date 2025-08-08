@@ -75,7 +75,7 @@ def main():
         from volumetric_integration_test import run_integration_test
         
         print("Starting Volumetric Detection Pipeline Integration Test...")
-        print("Academic validation for JDMS paper submission")
+        print("Validation")
         print(f"Results will be saved to: {output_filename}")
         print()
         

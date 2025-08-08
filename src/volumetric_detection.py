@@ -1,6 +1,5 @@
 """
 Volumetric Motion Detection Pipeline for Multi-Drone Swarm Engagement
-Academic implementation for JDMS paper submission
 
 Implements:
 - Probabilistic occupancy grids with Bayesian updates
