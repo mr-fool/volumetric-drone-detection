@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for testing
 import matplotlib.pyplot as plt
-from drone_trajectory_generator import (
+from src.drone_trajectory_generator import (
     DroneSwarmGenerator, 
     FlightPattern, 
     SimulationBounds,
