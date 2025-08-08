@@ -319,7 +319,8 @@ def visualize_trajectories(trajectory_data: dict, max_drones_display: int = 10):
     times = trajectory_data['times']
     bounds = trajectory_data['bounds']
     
-    fig = plt.figure(figsize=(12, 8))
+    # Larger figure size to accommodate 3D plot and labels
+    fig = plt.figure(figsize=(14, 10))
     ax = fig.add_subplot(111, projection='3d')
     
     # Display subset of trajectories to avoid clutter
@@ -343,14 +344,17 @@ def visualize_trajectories(trajectory_data: dict, max_drones_display: int = 10):
     
     ax.set_xlabel('X (meters)')
     ax.set_ylabel('Y (meters)')
-    ax.set_zlabel('Z (meters)')
+    ax.set_zlabel('')  # Remove default Z label
     ax.set_title(f'Drone Swarm Trajectories - {trajectory_data["pattern"].value}\n'
                 f'{trajectory_data["num_drones"]} drones, {len(times):.1f}s duration')
+    
+    # Manually place Z-axis label where it won't be cut off
+    ax.text2D(0.02, 0.5, 'Z (meters)', transform=ax.transAxes, 
+              rotation=90, va='center', ha='center', fontsize=12)
     
     if num_display <= 10:
         ax.legend()
     
-    plt.tight_layout()
     return fig
 
 # Example usage and testing
