@@ -30,6 +30,7 @@ from sklearn.cluster import DBSCAN
 # Import the modularized classes
 from bayesian_occupancy_updater import BayesianOccupancyUpdater, VoxelGrid
 from space_carving import SpaceCarvingAlgorithm
+from multi_view_triangulator import MultiViewTriangulator
 
 class DetectionMethod(Enum):
     OCCUPANCY_GRID = "occupancy_grid"
@@ -818,70 +819,6 @@ class VolumetricDetectionPipeline:
         threshold_voxels = np.sum(self.grid.occupancy_probs > self.detection_threshold)
         print(f"  Voxels > 0.6: {high_prob} ({high_prob/np.prod(self.grid.dimensions)*100:.3f}%)")
         print(f"  Voxels > threshold ({self.detection_threshold}): {threshold_voxels}")
-
-class MultiViewTriangulator:
-    """Multi-view geometry triangulation for precise 3D positioning"""
-    
-    def __init__(self, simulation_bounds=None):
-        self.triangulation_cache = {}
-        self.bounds = simulation_bounds
-        
-    def triangulate_target(self, observations: List, timestamp: float) -> Optional[DetectedTarget]:
-        """Triangulate 3D position from multiple sensor observations"""
-        if len(observations) < 2:
-            return None
-        
-        sensor_positions = []
-        target_positions = []
-        confidences = []
-        
-        for obs in observations:
-            if len(obs.detected_objects) > 0:
-                sensor_pos = self._estimate_sensor_position(obs.camera_id)
-                sensor_positions.append(sensor_pos)
-                target_positions.append(obs.detected_objects[0]['world_position'])
-                confidences.append(obs.confidence_scores[0] if len(obs.confidence_scores) > 0 else 0.5)
-        
-        if len(sensor_positions) < 2:
-            return None
-        
-        triangulated_pos = np.mean(target_positions, axis=0)
-        position_std = np.std(target_positions, axis=0)
-        accuracy_factor = 1.0 / (1.0 + np.mean(position_std))
-        covariance = np.diag(position_std ** 2 + 1.0)
-        
-        target = DetectedTarget(
-            position=triangulated_pos,
-            velocity=np.zeros(3),
-            confidence=np.mean(confidences) * accuracy_factor,
-            volume_estimate=1.0,
-            contributing_sensors=[obs.camera_id for obs in observations],
-            detection_method=DetectionMethod.TRIANGULATION,
-            covariance_matrix=covariance,
-            timestamp=timestamp
-        )
-        
-        return target
-    
-    def _estimate_sensor_position(self, camera_id: str) -> np.ndarray:
-        """Estimate sensor position based on camera ID"""
-        if self.bounds is None:
-            return np.array([500, 500, 100])
-        
-        try:
-            cam_num = int(camera_id.split('_')[-1])
-        except (ValueError, IndexError):
-            cam_num = 0
-        
-        center_x = (self.bounds.x_max + self.bounds.x_min) / 2
-        center_y = (self.bounds.y_max + self.bounds.y_min) / 2
-        radius = min(self.bounds.x_max - center_x, self.bounds.y_max - center_y) * 1.2
-        angle = 2 * np.pi * cam_num / 8
-        cam_x = center_x + radius * np.cos(angle)
-        cam_y = center_y + radius * np.sin(angle)
-        cam_z = 100.0
-        
-        return np.array([cam_x, cam_y, cam_z])
 
 
 class TemporalTargetTracker:
