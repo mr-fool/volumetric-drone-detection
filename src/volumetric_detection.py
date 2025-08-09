@@ -23,7 +23,7 @@ from collections import defaultdict, deque
 import scipy.spatial
 from scipy.optimize import least_squares
 from scipy.ndimage import gaussian_filter
-# Note: cv2 import removed as it's not essential for core functionality
+from sklearn.cluster import DBSCAN
 
 class DetectionMethod(Enum):
     OCCUPANCY_GRID = "occupancy_grid"
@@ -81,15 +81,6 @@ class VolumetricDetectionPipeline:
     
     def __init__(self, simulation_bounds, voxel_resolution: float = 2.0,
                  temporal_decay_rate: float = 0.95, detection_threshold: float = 0.7):
-        """
-        Initialize volumetric detection pipeline
-        
-        Args:
-            simulation_bounds: SimulationBounds object defining 3D volume
-            voxel_resolution: Meters per voxel (smaller = higher resolution)
-            temporal_decay_rate: Exponential decay for occupancy probabilities
-            detection_threshold: Minimum probability for target detection
-        """
         self.bounds = simulation_bounds
         self.voxel_resolution = voxel_resolution
         self.temporal_decay_rate = temporal_decay_rate
@@ -105,18 +96,21 @@ class VolumetricDetectionPipeline:
         
         # Target tracking
         self.target_tracker = TemporalTargetTracker()
-        self.detection_history = deque(maxlen=100)  # Keep last 100 detections
+        self.detection_history = deque(maxlen=100)
         
         # Performance monitoring
         self.performance_monitor = PerformanceMonitor()
         
         # Algorithm parameters
         self.bayesian_params = {
-            'prob_occupied_given_detection': 0.85,
-            'prob_occupied_given_no_detection': 0.15,
-            'prior_probability': 0.5,
-            'minimum_evidence': 0.1
+            'prob_occupied_given_detection': 0.9,
+            'prob_occupied_given_no_detection': 0.02,
+            'prior_probability': 0.1,
+            'minimum_evidence': 0.05
         }
+        
+        # Lower detection threshold
+        self.detection_threshold = 0.55
         
         self.space_carving_params = {
             'carving_threshold': 0.3,
@@ -126,8 +120,6 @@ class VolumetricDetectionPipeline:
         
     def _initialize_voxel_grid(self) -> VoxelGrid:
         """Initialize 3D voxel grid covering simulation volume"""
-        
-        # Calculate grid dimensions
         x_range = self.bounds.x_max - self.bounds.x_min
         y_range = self.bounds.y_max - self.bounds.y_min
         z_range = self.bounds.z_max - self.bounds.z_min
@@ -146,17 +138,7 @@ class VolumetricDetectionPipeline:
     
     def process_sensor_observations(self, observations: List, timestamp: float,
                                   method: DetectionMethod = DetectionMethod.HYBRID) -> List[DetectedTarget]:
-        """
-        Main processing pipeline for sensor observations
-        
-        Args:
-            observations: List of SensorObservation objects from sensor array
-            timestamp: Current simulation timestamp
-            method: Detection method to use
-            
-        Returns:
-            List of detected targets with 3D positions and metadata
-        """
+        """Main processing pipeline for sensor observations"""
         start_time = time.time()
         
         # Apply temporal decay to existing occupancy probabilities
@@ -194,114 +176,151 @@ class VolumetricDetectionPipeline:
     
     def _apply_temporal_decay(self, current_time: float):
         """Apply exponential temporal decay to occupancy probabilities"""
-        
-        # Calculate time since last update for each voxel
         time_diff = current_time - self.grid.last_update_time
-        
-        # Apply exponential decay where not recently updated
-        decay_mask = time_diff > 0.1  # Only decay if > 0.1 seconds old
+        decay_mask = time_diff > 0.1
         decay_factor = np.power(self.temporal_decay_rate, time_diff)
-        
-        # Decay toward prior probability (0.5)
         prior = self.bayesian_params['prior_probability']
         self.grid.occupancy_probs[decay_mask] = (
-            prior + (self.grid.occupancy_probs[decay_mask] - prior) * decay_factor[decay_mask]
-        )
-        
-        # Decay confidence scores
+            prior + (self.grid.occupancy_probs[decay_mask] - prior) * decay_factor[decay_mask])
         self.grid.confidence_scores *= np.power(0.98, time_diff)
     
     def _process_occupancy_grid_method(self, observations: List, timestamp: float) -> List[DetectedTarget]:
         """Process using Bayesian occupancy grid updates"""
-        
-        # Update occupancy grid with new observations
         self.occupancy_updater.update_grid(observations, timestamp)
-        
-        # Extract high-probability regions as targets
         targets = self._extract_targets_from_occupancy_grid(timestamp)
-        
         return targets
     
-    def _extract_targets_from_carved_space(self, carved_volume: np.ndarray, 
-                                          timestamp: float) -> List[DetectedTarget]:
-        """Extract targets from space carving results"""
+    def _extract_targets_from_occupancy_grid(self, timestamp: float) -> List[DetectedTarget]:
+        """Extract target detections from high-probability grid regions"""
+        high_prob_mask = self.grid.occupancy_probs > self.detection_threshold
+        high_conf_mask = self.grid.confidence_scores > 0.3
+        detection_mask = high_prob_mask | (self.grid.occupancy_probs > 0.4)
         
-        # Find connected components in carved volume
-        carved_coords = np.where(carved_volume)
-        
-        if len(carved_coords[0]) == 0:
+        if not np.any(detection_mask):
             return []
         
-        # Convert to world coordinates
-        world_positions = self._voxel_to_world_coordinates(carved_coords)
+        detected_coords = np.where(detection_mask)
+        detected_positions = self._voxel_to_world_coordinates(detected_coords)
+        targets = self._cluster_detections_enhanced(detected_positions, detection_mask, timestamp)
+        return targets
+    
+    def _cluster_detections_enhanced(self, positions: np.ndarray, mask: np.ndarray, 
+                                   timestamp: float) -> List[DetectedTarget]:
+        """Enhanced clustering with better noise filtering"""
+        if len(positions) == 0:
+            return []
         
-        # Create a mask for clustering
-        mask = np.ones(len(world_positions), dtype=bool)
+        targets = []
+        clustering_distance = self.voxel_resolution * 3
         
-        # Cluster positions into discrete targets
-        targets = self._cluster_detections(world_positions, mask, timestamp)
-        
-        # Update detection method for these targets
-        for target in targets:
-            target.detection_method = DetectionMethod.SPACE_CARVING
+        try:
+            clustering = DBSCAN(eps=clustering_distance, min_samples=2).fit(positions)
+            labels = clustering.labels_
+            
+            for label in set(labels):
+                if label == -1:
+                    continue
+                
+                cluster_mask = labels == label
+                cluster_positions = positions[cluster_mask]
+                
+                if len(cluster_positions) < 2:
+                    continue
+                
+                centroid = np.mean(cluster_positions, axis=0)
+                volume_estimate = len(cluster_positions) * (self.voxel_resolution ** 3)
+                
+                voxel_coord = self._world_to_voxel_coordinates(centroid.reshape(1, -1))[0]
+                cluster_prob = self.grid.occupancy_probs[
+                    voxel_coord[0], voxel_coord[1], voxel_coord[2]]
+                confidence = min(0.9, 0.2 + cluster_prob * 0.7)
+                
+                velocity = self._estimate_velocity_from_history(centroid, timestamp)
+                position_std = np.std(cluster_positions, axis=0)
+                position_std = np.maximum(position_std, self.voxel_resolution * 0.5)
+                covariance = np.diag(position_std ** 2)
+                
+                target = DetectedTarget(
+                    position=centroid,
+                    velocity=velocity,
+                    confidence=confidence,
+                    volume_estimate=volume_estimate,
+                    contributing_sensors=[],
+                    detection_method=DetectionMethod.OCCUPANCY_GRID,
+                    covariance_matrix=covariance,
+                    timestamp=timestamp
+                )
+                targets.append(target)
+                
+        except ImportError:
+            targets = self._cluster_detections_simple(positions, mask, timestamp)
         
         return targets
     
-    def _process_hybrid_method(self, observations: List, timestamp: float) -> List[DetectedTarget]:
-        """Process using hybrid approach combining multiple methods"""
+    def _cluster_detections_simple(self, positions: np.ndarray, mask: np.ndarray, 
+                                 timestamp: float) -> List[DetectedTarget]:
+        """Simple clustering fallback"""
+        from scipy.cluster.hierarchy import fcluster, linkage
         
-        # Run triangulation for immediate high-confidence detections
-        triangulation_targets = self._process_triangulation_method(observations, timestamp)
+        if len(positions) < 2:
+            return []
         
-        # Update occupancy grid for spatial consistency
-        self.occupancy_updater.update_grid(observations, timestamp)
+        linkage_matrix = linkage(positions, method='ward')
+        cluster_labels = fcluster(linkage_matrix, self.voxel_resolution * 4, criterion='distance')
         
-        # Perform space carving for volume estimation
-        carved_volume = self.space_carver.carve_space(observations, timestamp)
+        targets = []
+        for cluster_id in set(cluster_labels):
+            cluster_mask = cluster_labels == cluster_id
+            cluster_positions = positions[cluster_mask]
+            
+            if len(cluster_positions) < 3:
+                continue
+            
+            centroid = np.mean(cluster_positions, axis=0)
+            volume_estimate = len(cluster_positions) * (self.voxel_resolution ** 3)
+            
+            target = DetectedTarget(
+                position=centroid,
+                velocity=np.zeros(3),
+                confidence=0.5,
+                volume_estimate=volume_estimate,
+                contributing_sensors=[],
+                detection_method=DetectionMethod.OCCUPANCY_GRID,
+                covariance_matrix=np.eye(3) * (self.voxel_resolution ** 2),
+                timestamp=timestamp
+            )
+            targets.append(target)
         
-        # Combine results intelligently
-        hybrid_targets = self._fuse_detection_results(
-            triangulation_targets, carved_volume, timestamp
-        )
-        
-        return hybrid_targets
+        return targets
     
     def _process_space_carving_method(self, observations: List, timestamp: float) -> List[DetectedTarget]:
         """Process using space carving algorithm"""
-        
-        # Perform space carving based on visual hulls
         carved_volume = self.space_carver.carve_space(observations, timestamp)
-        
-        # Extract targets from carved volume
         targets = self._extract_targets_from_carved_space(carved_volume, timestamp)
-        
         return targets
     
     def _process_triangulation_method(self, observations: List, timestamp: float) -> List[DetectedTarget]:
         """Process using multi-view triangulation"""
-        
-        # Group observations by detected objects
         object_groups = self._group_observations_by_object(observations)
-        
-        # Triangulate 3D positions
         targets = []
         for group in object_groups:
-            if len(group) >= 2:  # Need at least 2 views for triangulation
+            if len(group) >= 2:
                 target = self.triangulator.triangulate_target(group, timestamp)
                 if target is not None:
                     targets.append(target)
-        
         return targets
+    
+    def _process_hybrid_method(self, observations: List, timestamp: float) -> List[DetectedTarget]:
+        """Process using hybrid approach combining multiple methods"""
+        triangulation_targets = self._process_triangulation_method(observations, timestamp)
+        self.occupancy_updater.update_grid(observations, timestamp)
+        carved_volume = self.space_carver.carve_space(observations, timestamp)
+        hybrid_targets = self._fuse_detection_results(triangulation_targets, carved_volume, timestamp)
+        return hybrid_targets
     
     def _group_observations_by_object(self, observations: List) -> List[List]:
         """Group observations by detected objects for triangulation"""
-        
-        # Simple grouping - assumes each sensor detects same objects
-        # More sophisticated association could be implemented
-        max_objects = 0
-        for obs in observations:
-            max_objects = max(max_objects, len(obs.detected_objects))
-        
+        max_objects = max(len(obs.detected_objects) for obs in observations) if observations else 0
         object_groups = [[] for _ in range(max_objects)]
         
         for obs in observations:
@@ -314,54 +333,38 @@ class VolumetricDetectionPipeline:
     def _fuse_detection_results(self, triangulation_targets: List[DetectedTarget], 
                                carved_volume: np.ndarray, timestamp: float) -> List[DetectedTarget]:
         """Fuse results from multiple detection methods"""
-        
-        # Start with triangulation targets (high confidence)
         fused_targets = triangulation_targets.copy()
-        
-        # Extract targets from space carving
         carving_targets = self._extract_targets_from_carved_space(carved_volume, timestamp)
-        
-        # Add targets from occupancy grid that don't overlap with existing
         occupancy_targets = self._extract_targets_from_occupancy_grid(timestamp)
         
-        # Combine carving and occupancy targets
         additional_targets = carving_targets + occupancy_targets
         
         for add_target in additional_targets:
-            # Check if this target overlaps with existing triangulation targets
             is_duplicate = False
             for tri_target in triangulation_targets:
                 distance = np.linalg.norm(add_target.position - tri_target.position)
-                if distance < 15.0:  # 15m overlap threshold
-                    # Boost confidence of triangulation target if supported by other methods
+                if distance < 15.0:
                     if add_target.detection_method == DetectionMethod.SPACE_CARVING:
                         tri_target.confidence = min(0.95, tri_target.confidence * 1.3)
                     is_duplicate = True
                     break
             
-            if not is_duplicate:
-                # Check if carved volume supports this detection
+            if not is_duplicate and add_target.confidence > 0.1:
                 if self._check_carving_support(add_target.position, carved_volume):
-                    add_target.confidence *= 1.2  # Boost confidence if supported by carving
-                
-                # Only add if confidence is reasonable
-                if add_target.confidence > 0.1:
-                    fused_targets.append(add_target)
+                    add_target.confidence *= 1.2
+                fused_targets.append(add_target)
         
         return fused_targets
     
     def _check_carving_support(self, position: np.ndarray, carved_volume: np.ndarray) -> bool:
         """Check if a position is supported by carved volume"""
-        
         voxel_coord = self._world_to_voxel_coordinates(position.reshape(1, -1))[0]
         
-        # Check bounds
         if not (0 <= voxel_coord[0] < carved_volume.shape[0] and
                 0 <= voxel_coord[1] < carved_volume.shape[1] and
                 0 <= voxel_coord[2] < carved_volume.shape[2]):
             return False
         
-        # Check if carved volume supports this position (including neighborhood)
         support_count = 0
         total_checked = 0
         
@@ -369,147 +372,45 @@ class VolumetricDetectionPipeline:
             for dy in range(-1, 2):
                 for dz in range(-1, 2):
                     x, y, z = voxel_coord[0] + dx, voxel_coord[1] + dy, voxel_coord[2] + dz
-                    
                     if (0 <= x < carved_volume.shape[0] and
                         0 <= y < carved_volume.shape[1] and
                         0 <= z < carved_volume.shape[2]):
-                        
                         if carved_volume[x, y, z]:
                             support_count += 1
                         total_checked += 1
         
-        # Require at least 30% support in neighborhood
         return (support_count / max(1, total_checked)) > 0.3
     
     def _extract_targets_from_carved_space(self, carved_volume: np.ndarray, 
                                           timestamp: float) -> List[DetectedTarget]:
         """Extract targets from space carving results"""
-        
-        # Find connected components in carved volume
         carved_coords = np.where(carved_volume)
         
         if len(carved_coords[0]) == 0:
             return []
         
-        # Convert to world coordinates
         world_positions = self._voxel_to_world_coordinates(carved_coords)
-        
-        # Create a mask for clustering
         mask = np.ones(len(world_positions), dtype=bool)
+        targets = self._cluster_detections_simple(world_positions, mask, timestamp)
         
-        # Cluster positions into discrete targets
-        targets = self._cluster_detections(world_positions, mask, timestamp)
-        
-        # Update detection method for these targets
         for target in targets:
             target.detection_method = DetectionMethod.SPACE_CARVING
         
         return targets
     
-    def _extract_targets_from_occupancy_grid(self, timestamp: float) -> List[DetectedTarget]:
-        """Extract target detections from high-probability grid regions"""
-        
-        # Find high-probability voxels
-        high_prob_mask = self.grid.occupancy_probs > self.detection_threshold
-        high_conf_mask = self.grid.confidence_scores > 0.5
-        detection_mask = high_prob_mask & high_conf_mask
-        
-        if not np.any(detection_mask):
-            return []
-        
-        # Get coordinates of detected voxels
-        detected_coords = np.where(detection_mask)
-        detected_positions = self._voxel_to_world_coordinates(detected_coords)
-        
-        # Cluster nearby detections
-        targets = self._cluster_detections(detected_positions, detection_mask, timestamp)
-        
-        return targets
-    
-    def _cluster_detections(self, positions: np.ndarray, mask: np.ndarray, 
-                          timestamp: float) -> List[DetectedTarget]:
-        """Cluster nearby detection points into discrete targets"""
-        
-        if len(positions) == 0:
-            return []
-        
-        targets = []
-        clustering_distance = self.voxel_resolution * 4  # Increased from 3 to 4 voxels
-        
-        # Use hierarchical clustering for target separation
-        from scipy.cluster.hierarchy import fcluster, linkage
-        
-        if len(positions) > 1:
-            try:
-                linkage_matrix = linkage(positions, method='ward')
-                cluster_labels = fcluster(linkage_matrix, clustering_distance, criterion='distance')
-            except:
-                # Fallback if clustering fails
-                cluster_labels = [1] * len(positions)
-        else:
-            cluster_labels = [1]
-        
-        # Create target for each cluster
-        for cluster_id in np.unique(cluster_labels):
-            cluster_mask = cluster_labels == cluster_id
-            cluster_positions = positions[cluster_mask]
-            
-            # Skip very small clusters (likely noise)
-            if len(cluster_positions) < 3:
-                continue
-            
-            # Calculate cluster centroid and properties
-            centroid = np.mean(cluster_positions, axis=0)
-            
-            # Estimate volume and confidence
-            volume_estimate = len(cluster_positions) * (self.voxel_resolution ** 3)
-            
-            # Calculate confidence based on cluster size and density
-            cluster_radius = np.max(np.linalg.norm(cluster_positions - centroid, axis=1))
-            density = len(cluster_positions) / max(1.0, cluster_radius ** 3)
-            confidence = min(0.8, 0.1 + density * 0.1)  # Base confidence from cluster properties
-            
-            # Estimate velocity from recent position changes
-            velocity = self._estimate_velocity_from_history(centroid, timestamp)
-            
-            # Create covariance matrix based on cluster spread
-            position_std = np.std(cluster_positions, axis=0)
-            # Ensure minimum uncertainty
-            position_std = np.maximum(position_std, self.voxel_resolution)
-            covariance = np.diag(position_std ** 2)
-            
-            target = DetectedTarget(
-                position=centroid,
-                velocity=velocity,
-                confidence=confidence,
-                volume_estimate=volume_estimate,
-                contributing_sensors=[],  # Will be filled by tracking
-                detection_method=DetectionMethod.SPACE_CARVING,
-                covariance_matrix=covariance,
-                timestamp=timestamp
-            )
-            
-            targets.append(target)
-        
-        return targets
-    
     def _voxel_to_world_coordinates(self, voxel_coords: Tuple) -> np.ndarray:
         """Convert voxel grid coordinates to world coordinates"""
-        
         voxel_array = np.column_stack(voxel_coords)
         world_coords = (self.grid.origin + 
                        voxel_array * self.voxel_resolution + 
-                       self.voxel_resolution / 2)  # Center of voxel
-        
+                       self.voxel_resolution / 2)
         return world_coords
     
     def _world_to_voxel_coordinates(self, world_coords: np.ndarray) -> np.ndarray:
         """Convert world coordinates to voxel grid indices"""
-        
         relative_coords = world_coords - self.grid.origin
         voxel_coords = (relative_coords / self.voxel_resolution).astype(int)
         
-        # Clip to grid bounds
         voxel_coords[:, 0] = np.clip(voxel_coords[:, 0], 0, self.grid.dimensions[0] - 1)
         voxel_coords[:, 1] = np.clip(voxel_coords[:, 1], 0, self.grid.dimensions[1] - 1)
         voxel_coords[:, 2] = np.clip(voxel_coords[:, 2], 0, self.grid.dimensions[2] - 1)
@@ -518,22 +419,20 @@ class VolumetricDetectionPipeline:
     
     def _estimate_velocity_from_history(self, position: np.ndarray, timestamp: float) -> np.ndarray:
         """Estimate velocity using recent detection history"""
-        
         if len(self.detection_history) < 2:
             return np.zeros(3)
         
-        # Find closest historical detection
         min_distance = float('inf')
         best_match = None
         
-        for hist_entry in reversed(list(self.detection_history)[-5:]):  # Check last 5 frames
+        for hist_entry in reversed(list(self.detection_history)[-5:]):
             time_diff = timestamp - hist_entry['timestamp']
-            if time_diff <= 0 or time_diff > 2.0:  # Skip if too old or same time
+            if time_diff <= 0 or time_diff > 2.0:
                 continue
                 
             for target in hist_entry['targets']:
                 distance = np.linalg.norm(target.position - position)
-                if distance < min_distance and distance < 20.0:  # Within 20m
+                if distance < min_distance and distance < 20.0:
                     min_distance = distance
                     best_match = (target.position, time_diff)
         
@@ -544,265 +443,145 @@ class VolumetricDetectionPipeline:
         
         return np.zeros(3)
     
-    def get_detection_summary(self) -> Dict:
-        """Get summary statistics for academic evaluation"""
+    def debug_occupancy_grid(self):
+        """Debug function to analyze occupancy grid state"""
+        print("=== OCCUPANCY GRID DEBUG ===")
+        print(f"Grid dimensions: {self.grid.dimensions}")
+        print(f"Total voxels: {np.prod(self.grid.dimensions)}")
         
-        if not self.detection_history:
-            return {}
+        probs = self.grid.occupancy_probs.flatten()
+        print(f"Probability stats:")
+        print(f"  Min: {np.min(probs):.3f}")
+        print(f"  Max: {np.max(probs):.3f}")
+        print(f"  Mean: {np.mean(probs):.3f}")
         
-        recent_detections = list(self.detection_history)[-10:]  # Last 10 frames
-        
-        summary = {
-            'total_targets_detected': sum(len(d['targets']) for d in recent_detections),
-            'average_processing_time': np.mean([d['processing_time'] for d in recent_detections]),
-            'detection_rate': len(recent_detections) / 10.0 if recent_detections else 0,
-            'grid_utilization': np.mean(self.grid.occupancy_probs > 0.6),
-            'performance_metrics': self.performance_monitor.get_summary()
-        }
-        
-        return summary
-    
-    def visualize_detection_volume(self, timestamp: float = None, 
-                                 slice_elevation: float = None) -> plt.Figure:
-        """Visualize current detection state for analysis"""
-        
-        fig = plt.figure(figsize=(16, 12))
-        
-        # Plot 1: 3D occupancy grid
-        ax1 = fig.add_subplot(2, 3, 1, projection='3d')
-        self._plot_occupancy_grid_3d(ax1)
-        
-        # Plot 2: XY slice at specified elevation
-        ax2 = fig.add_subplot(2, 3, 2)
-        if slice_elevation is None:
-            slice_elevation = (self.bounds.z_min + self.bounds.z_max) / 2
-        self._plot_occupancy_slice(ax2, slice_elevation, 'xy')
-        
-        # Plot 3: XZ slice
-        ax3 = fig.add_subplot(2, 3, 3)
-        mid_y = (self.bounds.y_min + self.bounds.y_max) / 2
-        self._plot_occupancy_slice(ax3, mid_y, 'xz')
-        
-        # Plot 4: Detection confidence histogram
-        ax4 = fig.add_subplot(2, 3, 4)
-        self._plot_confidence_histogram(ax4)
-        
-        # Plot 5: Performance metrics over time
-        ax5 = fig.add_subplot(2, 3, 5)
-        self._plot_performance_history(ax5)
-        
-        # Plot 6: Target tracking visualization
-        ax6 = fig.add_subplot(2, 3, 6)
-        self._plot_target_tracks(ax6)
-        
-        plt.tight_layout()
-        return fig
-    
-    def _plot_occupancy_grid_3d(self, ax):
-        """Plot 3D visualization of occupancy grid"""
-        
-        # Sample high-probability voxels for visualization
-        high_prob_mask = self.grid.occupancy_probs > 0.6
-        coords = np.where(high_prob_mask)
-        
-        if len(coords[0]) > 0:
-            world_coords = self._voxel_to_world_coordinates(coords)
-            probs = self.grid.occupancy_probs[coords]
-            
-            # Subsample for performance if too many points
-            if len(world_coords) > 1000:
-                indices = np.random.choice(len(world_coords), 1000, replace=False)
-                world_coords = world_coords[indices]
-                probs = probs[indices]
-            
-            scatter = ax.scatter(world_coords[:, 0], world_coords[:, 1], world_coords[:, 2],
-                               c=probs, cmap='hot', alpha=0.6, s=20)
-            plt.colorbar(scatter, ax=ax, shrink=0.5)
-        
-        ax.set_xlabel('X (m)')
-        ax.set_ylabel('Y (m)')
-        ax.set_zlabel('Z (m)')
-        ax.set_title('3D Occupancy Probabilities')
-    
-    def _plot_occupancy_slice(self, ax, slice_value: float, plane: str):
-        """Plot 2D slice of occupancy grid"""
-        
-        if plane == 'xy':
-            z_idx = int((slice_value - self.grid.origin[2]) / self.voxel_resolution)
-            z_idx = np.clip(z_idx, 0, self.grid.dimensions[2] - 1)
-            slice_data = self.grid.occupancy_probs[:, :, z_idx].T
-            extent = [self.bounds.x_min, self.bounds.x_max, 
-                     self.bounds.y_min, self.bounds.y_max]
-            ax.set_xlabel('X (m)')
-            ax.set_ylabel('Y (m)')
-            ax.set_title(f'XY Occupancy Slice (Z={slice_value:.1f}m)')
-        elif plane == 'xz':
-            y_idx = int((slice_value - self.grid.origin[1]) / self.voxel_resolution)
-            y_idx = np.clip(y_idx, 0, self.grid.dimensions[1] - 1)
-            slice_data = self.grid.occupancy_probs[:, y_idx, :].T
-            extent = [self.bounds.x_min, self.bounds.x_max,
-                     self.bounds.z_min, self.bounds.z_max]
-            ax.set_xlabel('X (m)')
-            ax.set_ylabel('Z (m)')
-            ax.set_title(f'XZ Occupancy Slice (Y={slice_value:.1f}m)')
-        
-        im = ax.imshow(slice_data, extent=extent, origin='lower', 
-                      cmap='hot', alpha=0.8, aspect='auto')
-        plt.colorbar(im, ax=ax)
-        
-    def _plot_confidence_histogram(self, ax):
-        """Plot histogram of detection confidences"""
-        
-        confidences = self.grid.confidence_scores.flatten()
-        confidences = confidences[confidences > 0.01]  # Only non-zero confidences
-        
-        if len(confidences) > 0:
-            ax.hist(confidences, bins=50, alpha=0.7, color='blue')
-            ax.set_xlabel('Confidence Score')
-            ax.set_ylabel('Voxel Count')
-            ax.set_title('Detection Confidence Distribution')
-        else:
-            ax.text(0.5, 0.5, 'No detections', transform=ax.transAxes, 
-                   ha='center', va='center')
-    
-    def _plot_performance_history(self, ax):
-        """Plot performance metrics over time"""
-        
-        if len(self.detection_history) > 1:
-            times = [d['timestamp'] for d in self.detection_history]
-            proc_times = [d['processing_time'] * 1000 for d in self.detection_history]  # Convert to ms
-            
-            ax.plot(times, proc_times, 'b-', linewidth=2)
-            ax.set_xlabel('Time (s)')
-            ax.set_ylabel('Processing Time (ms)')
-            ax.set_title('Detection Pipeline Performance')
-            ax.grid(True, alpha=0.3)
-        
-    def _plot_target_tracks(self, ax):
-        """Plot recent target tracks"""
-        
-        # Collect target positions from recent history
-        track_data = defaultdict(list)
-        
-        for hist_entry in self.detection_history:
-            for target in hist_entry['targets']:
-                if target.target_id is not None:
-                    track_data[target.target_id].append({
-                        'time': hist_entry['timestamp'],
-                        'pos': target.position,
-                        'conf': target.confidence
-                    })
-        
-        # Plot tracks
-        colors = plt.cm.tab10(np.linspace(0, 1, min(10, len(track_data))))
-        
-        for i, (track_id, positions) in enumerate(track_data.items()):
-            if len(positions) > 1:
-                pos_array = np.array([p['pos'][:2] for p in positions])  # XY only
-                ax.plot(pos_array[:, 0], pos_array[:, 1], 
-                       color=colors[i % len(colors)], linewidth=2, alpha=0.7,
-                       label=f'Track {track_id}')
-        
-        ax.set_xlabel('X (m)')
-        ax.set_ylabel('Y (m)')
-        ax.set_title('Target Tracks')
-        ax.set_xlim(self.bounds.x_min, self.bounds.x_max)
-        ax.set_ylim(self.bounds.y_min, self.bounds.y_max)
-        if len(track_data) <= 10:
-            ax.legend()
+        high_prob = np.sum(self.grid.occupancy_probs > 0.6)
+        threshold_voxels = np.sum(self.grid.occupancy_probs > self.detection_threshold)
+        print(f"  Voxels > 0.6: {high_prob} ({high_prob/np.prod(self.grid.dimensions)*100:.3f}%)")
+        print(f"  Voxels > threshold ({self.detection_threshold}): {threshold_voxels}")
 
 
 class BayesianOccupancyUpdater:
-    """Bayesian occupancy grid update algorithms"""
+    """Fixed Bayesian occupancy grid update algorithms"""
     
     def __init__(self, grid: VoxelGrid):
         self.grid = grid
         
     def update_grid(self, observations: List, timestamp: float):
         """Update occupancy probabilities using Bayesian inference"""
+        updated_voxels = set()
         
         for obs in observations:
             if len(obs.detected_objects) == 0:
                 continue
                 
-            # Update grid based on sensor observations
-            self._update_from_sensor_observation(obs, timestamp)
-    
-    def _update_from_sensor_observation(self, observation, timestamp: float):
-        """Update grid based on single sensor observation"""
+            sensor_pos = self._get_sensor_position(obs.camera_id, obs)
+            self._update_from_sensor_observation(obs, sensor_pos, timestamp, updated_voxels)
         
-        # For each detected object, update voxels along sensor ray
+        self._apply_targeted_temporal_decay(updated_voxels, timestamp)
+    
+    def _get_sensor_position(self, camera_id: str, observation) -> np.ndarray:
+        """Extract actual sensor position from camera ID"""
+        try:
+            cam_num = int(camera_id.split('_')[-1])
+            center_x = (self.grid.origin[0] + self.grid.dimensions[0] * self.grid.resolution) / 2
+            center_y = (self.grid.origin[1] + self.grid.dimensions[1] * self.grid.resolution) / 2
+            radius = min(self.grid.dimensions[0], self.grid.dimensions[1]) * self.grid.resolution * 0.6
+            angle = 2 * np.pi * cam_num / 8
+            cam_x = center_x + radius * np.cos(angle)
+            cam_y = center_y + radius * np.sin(angle)
+            cam_z = 100.0
+            return np.array([cam_x, cam_y, cam_z])
+        except (ValueError, IndexError):
+            return np.array([500, 500, 100])
+
+    def _update_from_sensor_observation(self, observation, sensor_pos: np.ndarray, 
+                                       timestamp: float, updated_voxels: set):
+        """Enhanced sensor observation processing"""
         for i, obj in enumerate(observation.detected_objects):
             if i >= len(observation.range_estimates):
                 continue
                 
-            # Get sensor position (simplified - assumes sensor array structure)
-            sensor_pos = np.array([0, 0, 100])  # Placeholder
             target_pos = obj['world_position']
-            confidence = observation.confidence_scores[i] if i < len(observation.confidence_scores) else 0.5
+            confidence = min(0.95, max(0.2, 
+                observation.confidence_scores[i] if i < len(observation.confidence_scores) else 0.7))
             
-            # Update voxels along ray from sensor to target
-            self._update_ray_voxels(sensor_pos, target_pos, confidence, timestamp)
-    
+            self._update_ray_voxels(sensor_pos, target_pos, confidence, timestamp, updated_voxels)
+
     def _update_ray_voxels(self, sensor_pos: np.ndarray, target_pos: np.ndarray, 
-                          confidence: float, timestamp: float):
-        """Update voxels along sensor ray using inverse sensor model"""
-        
-        # Calculate ray direction and length
+                          confidence: float, timestamp: float, updated_voxels: set):
+        """Improved ray casting with dense sampling"""
         ray_vec = target_pos - sensor_pos
         ray_length = np.linalg.norm(ray_vec)
+        if ray_length < 1e-6:
+            return
+            
         ray_dir = ray_vec / ray_length
+        step_size = min(self.grid.resolution * 0.25, 1.0)
+        num_samples = int(ray_length / step_size) + 1
         
-        # Sample points along ray
-        num_samples = int(ray_length / (self.grid.resolution * 0.5))
-        sample_distances = np.linspace(0, ray_length, num_samples)
-        
-        for dist in sample_distances:
-            point = sensor_pos + ray_dir * dist
+        for i in range(num_samples):
+            t = i / max(1, num_samples - 1)
+            point = sensor_pos + ray_dir * (t * ray_length)
             voxel_coord = self._world_to_voxel_coord(point)
             
             if self._is_valid_voxel(voxel_coord):
-                # Inverse sensor model: high probability near target, low along ray
-                if dist > ray_length * 0.9:  # Near target
-                    prob_occupied = 0.8 * confidence
-                else:  # Along ray (free space)
-                    prob_occupied = 0.2 * (1 - confidence)
+                distance_to_target = np.linalg.norm(point - target_pos)
                 
-                # Bayesian update
-                self._bayesian_update_voxel(voxel_coord, prob_occupied, timestamp)
-    
+                if distance_to_target > 2.0:
+                    prob_occupied = 0.05 * (1.0 - confidence)
+                elif distance_to_target <= 1.0:
+                    prob_occupied = 0.85 * confidence
+                else:
+                    prob_occupied = 0.3 * confidence
+                
+                update_weight = min(0.3, confidence)
+                self._bayesian_update_voxel(voxel_coord, prob_occupied, update_weight, timestamp)
+                updated_voxels.add(voxel_coord)
+
     def _bayesian_update_voxel(self, voxel_coord: Tuple[int, int, int], 
-                              measurement_prob: float, timestamp: float):
-        """Perform Bayesian update on single voxel"""
-        
+                              measurement_prob: float, weight: float, timestamp: float):
+        """Weighted Bayesian update with bounds checking"""
         x, y, z = voxel_coord
-        
-        # Current belief
         prior = self.grid.occupancy_probs[x, y, z]
         
-        # Bayesian update formula
-        likelihood_occupied = measurement_prob
-        likelihood_free = 1.0 - measurement_prob
-        
-        # Posterior calculation
-        numerator = likelihood_occupied * prior
-        denominator = numerator + likelihood_free * (1 - prior)
+        numerator = measurement_prob * prior
+        denominator = numerator + (1.0 - measurement_prob) * (1.0 - prior)
         
         if denominator > 0:
             posterior = numerator / denominator
-            self.grid.occupancy_probs[x, y, z] = posterior
+            updated_prob = prior + (posterior - prior) * weight
+            self.grid.occupancy_probs[x, y, z] = np.clip(updated_prob, 0.01, 0.99)
         
-        # Update confidence and timestamp
         self.grid.confidence_scores[x, y, z] = min(1.0, 
-            self.grid.confidence_scores[x, y, z] + measurement_prob * 0.1)
+            self.grid.confidence_scores[x, y, z] + weight * 0.1)
         self.grid.last_update_time[x, y, z] = timestamp
-    
+
+    def _apply_targeted_temporal_decay(self, updated_voxels: set, current_time: float):
+        """Selective temporal decay for non-updated voxels"""
+        decay_rate = 0.95
+        prior = 0.5
+        
+        all_coords = np.indices(self.grid.dimensions)
+        all_voxels = set(zip(all_coords[0].ravel(), all_coords[1].ravel(), all_coords[2].ravel()))
+        not_updated = all_voxels - updated_voxels
+        
+        for x, y, z in not_updated:
+            time_diff = current_time - self.grid.last_update_time[x, y, z]
+            if time_diff > 0.1:
+                decay_factor = decay_rate ** time_diff
+                self.grid.occupancy_probs[x, y, z] = (
+                    prior + (self.grid.occupancy_probs[x, y, z] - prior) * decay_factor)
+
     def _world_to_voxel_coord(self, world_pos: np.ndarray) -> Tuple[int, int, int]:
-        """Convert world position to voxel coordinates"""
+        """Convert with bounds checking"""
         relative_pos = world_pos - self.grid.origin
         voxel_pos = (relative_pos / self.grid.resolution).astype(int)
-        return tuple(voxel_pos)
-    
+        x = max(0, min(voxel_pos[0], self.grid.dimensions[0] - 1))
+        y = max(0, min(voxel_pos[1], self.grid.dimensions[1] - 1))
+        z = max(0, min(voxel_pos[2], self.grid.dimensions[2] - 1))
+        return (x, y, z)
+
     def _is_valid_voxel(self, voxel_coord: Tuple[int, int, int]) -> bool:
         """Check if voxel coordinates are within grid bounds"""
         x, y, z = voxel_coord
@@ -821,57 +600,36 @@ class SpaceCarvingAlgorithm:
         
     def carve_space(self, observations: List, timestamp: float) -> np.ndarray:
         """Perform space carving based on visual hull intersection"""
-        
-        # Reset carved volume for each frame
         current_carving = np.zeros(self.grid.dimensions, dtype=bool)
-        
-        # Collect and deduplicate detected object positions from sensors
         detected_positions = []
         sensor_positions = []
         
         for obs in observations:
             if len(obs.detected_objects) > 0:
-                # Get sensor position (estimated from camera ID)
                 sensor_pos = self._estimate_sensor_position(obs.camera_id)
                 sensor_positions.append(sensor_pos)
-                
-                # Collect detected object positions
                 for obj in obs.detected_objects:
                     detected_positions.append(obj['world_position'])
         
-        # Deduplicate detection positions (same drone detected by multiple sensors)
         unique_detections = self._deduplicate_detections(detected_positions)
         
         if len(unique_detections) == 0:
             return np.zeros(self.grid.dimensions, dtype=bool)
         
-        print(f"DEBUG: Space carving {len(unique_detections)} unique detections (from {len(detected_positions)} total)")
-        
-        # Use simple fallback method instead of complex visual hull
         current_carving = self._mark_detected_regions(unique_detections)
-        
-        carved_count = np.sum(current_carving)
-        total_voxels = np.prod(current_carving.shape)
-        print(f"DEBUG: Marked {carved_count} voxels ({carved_count/total_voxels*100:.3f}%)")
-        
-        # Update persistent carved volume with temporal consistency
-        self._update_temporal_carving(current_carving, timestamp)
-        
+        self.carved_volume = current_carving
         return self.carved_volume
     
     def _deduplicate_detections(self, detected_positions: List) -> List:
-        """Remove duplicate detection positions (same drone detected by multiple sensors)"""
-        
+        """Remove duplicate detection positions"""
         if not detected_positions:
             return []
         
         unique_detections = []
-        detection_threshold = 5.0  # 5m - detections closer than this are considered duplicates
+        detection_threshold = 5.0
         
         for det_pos in detected_positions:
             det_pos = np.array(det_pos)
-            
-            # Check if this detection is close to any existing unique detection
             is_duplicate = False
             for unique_pos in unique_detections:
                 distance = np.linalg.norm(det_pos - np.array(unique_pos))
@@ -884,191 +642,21 @@ class SpaceCarvingAlgorithm:
         
         return unique_detections
     
-    def _carve_visual_hull(self, detected_positions: List, sensor_positions: List, 
-                          timestamp: float) -> np.ndarray:
-        """Carve 3D space using visual hull intersection"""
-        
-        carved_volume = np.zeros(self.grid.dimensions, dtype=bool)
-        
-        # For each detected position, create a cone of possible locations
-        for det_pos in detected_positions:
-            # Find sensors that could have detected this object
-            contributing_sensors = []
-            
-            for sensor_pos in sensor_positions:
-                distance = np.linalg.norm(np.array(det_pos) - np.array(sensor_pos))
-                if distance < 2000.0:  # Within sensor range
-                    contributing_sensors.append(sensor_pos)
-            
-            if len(contributing_sensors) >= 2:
-                # Create intersection volume for this detection
-                detection_volume = self._create_detection_volume(
-                    det_pos, contributing_sensors
-                )
-                carved_volume |= detection_volume
-        
-        return carved_volume
-    
-    def _carve_visual_hull(self, detected_positions: List, sensor_positions: List, 
-                          timestamp: float) -> np.ndarray:
-        """Carve 3D space using visual hull intersection"""
-        
-        carved_volume = np.zeros(self.grid.dimensions, dtype=bool)
-        
-        # For each detected position, create a conservative detection volume
-        for det_pos in detected_positions:
-            # Find sensors that could have detected this object
-            contributing_sensors = []
-            
-            for sensor_pos in sensor_positions:
-                distance = np.linalg.norm(np.array(det_pos) - np.array(sensor_pos))
-                if 50.0 <= distance <= 2000.0:  # Within sensor range
-                    contributing_sensors.append(sensor_pos)
-            
-            if len(contributing_sensors) >= 2:
-                # Create conservative detection volume for this detection
-                detection_volume = self._create_conservative_detection_volume(
-                    det_pos, contributing_sensors
-                )
-                carved_volume |= detection_volume
-        
-        return carved_volume
-    
-    def _create_conservative_detection_volume(self, target_pos: np.ndarray, 
-                                            sensor_positions: List) -> np.ndarray:
-        """Create a conservative 3D volume for a single detection"""
-        
-        detection_volume = np.zeros(self.grid.dimensions, dtype=bool)
-        target_pos = np.array(target_pos)
-        
-        # Much smaller uncertainty radius to prevent over-carving
-        uncertainty_radius = 8.0  # Reduced from 15.0 meters
-        
-        # Convert target position to voxel coordinates
-        target_voxel = ((target_pos - self.grid.origin) / self.grid.resolution).astype(int)
-        
-        # Check bounds
-        if not (0 <= target_voxel[0] < self.grid.dimensions[0] and
-                0 <= target_voxel[1] < self.grid.dimensions[1] and
-                0 <= target_voxel[2] < self.grid.dimensions[2]):
-            return detection_volume
-        
-        # Calculate voxel radius for uncertainty
-        voxel_radius = int(np.ceil(uncertainty_radius / self.grid.resolution))
-        
-        # Only iterate through voxels in the uncertainty region
-        x_start = max(0, target_voxel[0] - voxel_radius)
-        x_end = min(self.grid.dimensions[0], target_voxel[0] + voxel_radius + 1)
-        y_start = max(0, target_voxel[1] - voxel_radius)
-        y_end = min(self.grid.dimensions[1], target_voxel[1] + voxel_radius + 1)
-        z_start = max(0, target_voxel[2] - voxel_radius)
-        z_end = min(self.grid.dimensions[2], target_voxel[2] + voxel_radius + 1)
-        
-        # Iterate only through the local region
-        for i in range(x_start, x_end):
-            for j in range(y_start, y_end):
-                for k in range(z_start, z_end):
-                    # Convert voxel indices to world coordinates
-                    world_pos = self.grid.origin + np.array([i, j, k]) * self.grid.resolution
-                    
-                    # Check if this voxel is within uncertainty region of detection
-                    distance_to_detection = np.linalg.norm(world_pos - target_pos)
-                    
-                    if distance_to_detection <= uncertainty_radius:
-                        # Stricter sensor consistency check
-                        if self._strict_sensor_consistency(world_pos, sensor_positions, target_pos):
-                            detection_volume[i, j, k] = True
-        
-        return detection_volume
-    
-    def _strict_sensor_consistency(self, voxel_pos: np.ndarray, 
-                                  sensor_positions: List, target_pos: np.ndarray) -> bool:
-        """Stricter sensor consistency check to prevent over-carving"""
-        
-        if len(sensor_positions) < 2:
-            return False
-        
-        # Check that the voxel is close to the actual detection
-        distance_to_target = np.linalg.norm(voxel_pos - target_pos)
-        if distance_to_target > 8.0:  # Must be within 8m of actual detection
-            return False
-        
-        # Check visibility from sensors
-        visible_count = 0
-        total_distance = 0
-        
-        for sensor_pos in sensor_positions:
-            sensor_pos = np.array(sensor_pos)
-            distance = np.linalg.norm(voxel_pos - sensor_pos)
-            
-            # Tighter constraints
-            if 100.0 <= distance <= 1500.0:  # Tighter sensor range
-                if voxel_pos[2] >= self.grid.origin[2] + 70:  # Higher minimum altitude
-                    visible_count += 1
-                    total_distance += distance
-        
-        # Require visibility from at least 2 sensors
-        if visible_count >= 2:
-            # Additional constraint: average distance should be reasonable
-            avg_distance = total_distance / visible_count
-            return 200.0 <= avg_distance <= 1200.0
-        
-        return False
-    
-    def _check_sensor_consistency(self, voxel_pos: np.ndarray, 
-                                 sensor_positions: List) -> bool:
-        """Check if voxel position is geometrically consistent with sensors"""
-        
-        if len(sensor_positions) < 2:
-            return True
-        
-        # Check that the voxel is visible from multiple sensors
-        visible_count = 0
-        
-        for sensor_pos in sensor_positions:
-            sensor_pos = np.array(sensor_pos)
-            
-            # Simple line-of-sight check
-            distance = np.linalg.norm(voxel_pos - sensor_pos)
-            
-            # Within sensor range and reasonable viewing angle
-            if 50.0 <= distance <= 2000.0:
-                # Check if above minimum altitude (avoid ground clutter)
-                if voxel_pos[2] >= self.grid.origin[2] + 50:
-                    visible_count += 1
-                    
-                    # Early exit optimization - don't need to check all sensors
-                    if visible_count >= 2:
-                        return True
-        
-        # Require visibility from at least 2 sensors for carving
-        return visible_count >= 2
-    
     def _mark_detected_regions(self, detected_positions: List) -> np.ndarray:
-        """Fallback method: mark regions around detections"""
-        
+        """Mark regions around detections"""
         carved_volume = np.zeros(self.grid.dimensions, dtype=bool)
         
-        print(f"DEBUG: Marking regions for {len(detected_positions)} detections")
-        
-        for i, det_pos in enumerate(detected_positions):
+        for det_pos in detected_positions:
             det_pos = np.array(det_pos)
-            
-            # Convert position to voxel coordinates
             det_voxel = ((det_pos - self.grid.origin) / self.grid.resolution).astype(int)
             
-            # Check bounds first
             if not (0 <= det_voxel[0] < self.grid.dimensions[0] and
                     0 <= det_voxel[1] < self.grid.dimensions[1] and
                     0 <= det_voxel[2] < self.grid.dimensions[2]):
-                print(f"DEBUG: Detection {i} at {det_pos} -> voxel {det_voxel} is out of bounds")
                 continue
             
-            # Much smaller radius - only 5m instead of 10m
-            voxel_radius = int(np.ceil(5.0 / self.grid.resolution))  # ~2-3 voxels at 2m resolution
-            print(f"DEBUG: Detection {i} at {det_pos} -> voxel {det_voxel}, radius {voxel_radius}")
+            voxel_radius = int(np.ceil(5.0 / self.grid.resolution))
             
-            # Only iterate through local region
             x_start = max(0, det_voxel[0] - voxel_radius)
             x_end = min(self.grid.dimensions[0], det_voxel[0] + voxel_radius + 1)
             y_start = max(0, det_voxel[1] - voxel_radius)
@@ -1076,46 +664,30 @@ class SpaceCarvingAlgorithm:
             z_start = max(0, det_voxel[2] - voxel_radius)
             z_end = min(self.grid.dimensions[2], det_voxel[2] + voxel_radius + 1)
             
-            voxels_marked = 0
             for x in range(x_start, x_end):
                 for y in range(y_start, y_end):
                     for z in range(z_start, z_end):
                         world_pos = self.grid.origin + np.array([x, y, z]) * self.grid.resolution
-                        
                         distance = np.linalg.norm(world_pos - det_pos)
-                        if distance <= 5.0:  # 5m radius
+                        if distance <= 5.0:
                             carved_volume[x, y, z] = True
-                            voxels_marked += 1
-            
-            print(f"DEBUG: Detection {i} marked {voxels_marked} voxels")
         
         return carved_volume
     
-    def _update_temporal_carving(self, current_carving: np.ndarray, timestamp: float):
-        """Update carved volume with temporal consistency"""
-        
-        # Don't accumulate - use only current carving to prevent runaway growth
-        # The temporal aspect should be handled by the detection pipeline itself
-        self.carved_volume = current_carving.copy()
-    
     def _estimate_sensor_position(self, camera_id: str) -> np.ndarray:
         """Estimate sensor position from camera ID"""
-        
         try:
             cam_num = int(camera_id.split('_')[-1])
         except (ValueError, IndexError):
             cam_num = 0
         
-        # Position cameras in perimeter (consistent with sensor simulation)
         center_x = (self.grid.origin[0] + self.grid.dimensions[0] * self.grid.resolution) / 2
         center_y = (self.grid.origin[1] + self.grid.dimensions[1] * self.grid.resolution) / 2
         radius = min(self.grid.dimensions[0], self.grid.dimensions[1]) * self.grid.resolution * 0.6
-        
-        angle = 2 * np.pi * cam_num / 8  # 8 cameras in perimeter
-        
+        angle = 2 * np.pi * cam_num / 8
         cam_x = center_x + radius * np.cos(angle)
         cam_y = center_y + radius * np.sin(angle)
-        cam_z = 100.0  # 100m elevation
+        cam_z = 100.0
         
         return np.array([cam_x, cam_y, cam_z])
 
@@ -1129,50 +701,31 @@ class MultiViewTriangulator:
         
     def triangulate_target(self, observations: List, timestamp: float) -> Optional[DetectedTarget]:
         """Triangulate 3D position from multiple sensor observations"""
-        
         if len(observations) < 2:
             return None
         
-        # Extract sensor positions and target information
         sensor_positions = []
-        target_positions = []  # Use actual target positions from observations
+        target_positions = []
         confidences = []
         
         for obs in observations:
-            if len(obs.detected_objects) == 0:
-                continue
-                
-            # Get first detected object
-            obj = obs.detected_objects[0]
-            
-            # Get sensor position
-            sensor_pos = self._estimate_sensor_position(obs.camera_id)
-            
-            # Use the world position from the detection
-            target_pos = obj['world_position']
-            
-            sensor_positions.append(sensor_pos)
-            target_positions.append(target_pos)
-            confidences.append(obs.confidence_scores[0] if len(obs.confidence_scores) > 0 else 0.5)
+            if len(obs.detected_objects) > 0:
+                sensor_pos = self._estimate_sensor_position(obs.camera_id)
+                sensor_positions.append(sensor_pos)
+                target_positions.append(obs.detected_objects[0]['world_position'])
+                confidences.append(obs.confidence_scores[0] if len(obs.confidence_scores) > 0 else 0.5)
         
         if len(sensor_positions) < 2:
             return None
         
-        # Use the target positions directly for now (simplified triangulation)
-        # In a real system, we'd use bearing vectors and triangulate
         triangulated_pos = np.mean(target_positions, axis=0)
-        
-        # Calculate triangulation accuracy metrics
         position_std = np.std(target_positions, axis=0)
         accuracy_factor = 1.0 / (1.0 + np.mean(position_std))
+        covariance = np.diag(position_std ** 2 + 1.0)
         
-        # Estimate uncertainty covariance
-        covariance = np.diag(position_std ** 2 + 1.0)  # Add base uncertainty
-        
-        # Create target detection
         target = DetectedTarget(
             position=triangulated_pos,
-            velocity=np.zeros(3),  # Will be estimated by tracker
+            velocity=np.zeros(3),
             confidence=np.mean(confidences) * accuracy_factor,
             volume_estimate=1.0,
             contributing_sensors=[obs.camera_id for obs in observations],
@@ -1185,163 +738,23 @@ class MultiViewTriangulator:
     
     def _estimate_sensor_position(self, camera_id: str) -> np.ndarray:
         """Estimate sensor position based on camera ID"""
-        # Parse camera position from ID pattern (e.g., "visible_cam_00")
-        
         if self.bounds is None:
-            return np.array([500, 500, 100])  # Fallback
+            return np.array([500, 500, 100])
         
-        # Extract camera number from ID
         try:
             cam_num = int(camera_id.split('_')[-1])
         except (ValueError, IndexError):
             cam_num = 0
         
-        # Position cameras in a perimeter around the surveillance area
         center_x = (self.bounds.x_max + self.bounds.x_min) / 2
         center_y = (self.bounds.y_max + self.bounds.y_min) / 2
         radius = min(self.bounds.x_max - center_x, self.bounds.y_max - center_y) * 1.2
-        
-        angle = 2 * np.pi * cam_num / 8  # Assume 8 cameras in perimeter
-        
+        angle = 2 * np.pi * cam_num / 8
         cam_x = center_x + radius * np.cos(angle)
         cam_y = center_y + radius * np.sin(angle)
-        cam_z = 100.0  # 100m elevation
+        cam_z = 100.0
         
         return np.array([cam_x, cam_y, cam_z])
-    
-    def _calculate_bearing_vector(self, sensor_pos: np.ndarray, target_pos: np.ndarray) -> np.ndarray:
-        """Calculate unit bearing vector from sensor to target"""
-        bearing = target_pos - sensor_pos
-        return bearing / np.linalg.norm(bearing)
-    
-    def _least_squares_triangulation(self, sensor_positions: List[np.ndarray], 
-                                   bearing_vectors: List[np.ndarray]) -> Optional[np.ndarray]:
-        """Perform least squares triangulation using multiple rays"""
-        
-        if len(sensor_positions) != len(bearing_vectors) or len(sensor_positions) < 2:
-            return None
-        
-        # Set up least squares problem
-        # Each ray contributes: (P - S) × d = 0, where P is target, S is sensor, d is direction
-        
-        def residual_function(target_pos):
-            residuals = []
-            for sensor_pos, bearing in zip(sensor_positions, bearing_vectors):
-                # Cross product gives perpendicular distance from ray
-                vec_to_target = target_pos - sensor_pos
-                cross_prod = np.cross(vec_to_target, bearing)
-                residuals.extend(cross_prod)
-            return np.array(residuals)
-        
-        # Initial guess: midpoint of first two sensor positions
-        initial_guess = (sensor_positions[0] + sensor_positions[1]) / 2
-        
-        # Solve least squares problem
-        try:
-            result = least_squares(residual_function, initial_guess, method='lm')
-            if result.success:
-                return result.x
-        except Exception:
-            pass
-        
-        # Fallback: simple two-ray intersection
-        if len(sensor_positions) >= 2:
-            return self._two_ray_intersection(sensor_positions[0], bearing_vectors[0],
-                                            sensor_positions[1], bearing_vectors[1])
-        
-        return None
-    
-    def _two_ray_intersection(self, pos1: np.ndarray, dir1: np.ndarray,
-                            pos2: np.ndarray, dir2: np.ndarray) -> Optional[np.ndarray]:
-        """Find closest point between two 3D rays"""
-        
-        # Vector between ray origins
-        w0 = pos1 - pos2
-        
-        # Dot products
-        a = np.dot(dir1, dir1)
-        b = np.dot(dir1, dir2)
-        c = np.dot(dir2, dir2)
-        d = np.dot(dir1, w0)
-        e = np.dot(dir2, w0)
-        
-        # Solve for parameters
-        denom = a * c - b * b
-        if abs(denom) < 1e-10:  # Rays are parallel
-            return None
-        
-        s = (b * e - c * d) / denom
-        t = (a * e - b * d) / denom
-        
-        # Points on each ray
-        point1 = pos1 + s * dir1
-        point2 = pos2 + t * dir2
-        
-        # Return midpoint
-        return (point1 + point2) / 2
-    
-    def _calculate_triangulation_accuracy(self, sensor_positions: List[np.ndarray],
-                                        bearing_vectors: List[np.ndarray],
-                                        target_pos: np.ndarray) -> Dict:
-        """Calculate triangulation accuracy metrics"""
-        
-        # Calculate baseline angles
-        angles = []
-        for i in range(len(sensor_positions)):
-            for j in range(i + 1, len(sensor_positions)):
-                # Angle between bearing vectors
-                dot_product = np.dot(bearing_vectors[i], bearing_vectors[j])
-                angle = np.arccos(np.clip(dot_product, -1, 1))
-                angles.append(np.degrees(angle))
-        
-        # Geometric dilution of precision factor
-        if angles:
-            min_angle = min(angles)
-            # Better triangulation when rays are more perpendicular
-            geometric_factor = np.sin(np.radians(min_angle))
-        else:
-            geometric_factor = 0.5
-        
-        # Calculate reprojection errors
-        reprojection_errors = []
-        for sensor_pos, bearing in zip(sensor_positions, bearing_vectors):
-            vec_to_target = target_pos - sensor_pos
-            distance = np.linalg.norm(vec_to_target)
-            if distance > 1e-6:  # Avoid division by zero
-                predicted_bearing = vec_to_target / distance
-                angular_error = np.arccos(np.clip(np.dot(bearing, predicted_bearing), -1, 1))
-                reprojection_errors.append(np.degrees(angular_error))
-            else:
-                reprojection_errors.append(0.0)
-        
-        return {
-            'geometric_factor': geometric_factor,
-            'baseline_angles': angles,
-            'reprojection_errors': reprojection_errors,
-            'mean_reprojection_error': np.mean(reprojection_errors) if reprojection_errors else 0
-        }
-    
-    def _estimate_position_covariance(self, sensor_positions: List[np.ndarray],
-                                    bearing_vectors: List[np.ndarray],
-                                    confidences: List[float]) -> np.ndarray:
-        """Estimate position uncertainty covariance matrix"""
-        
-        # Simplified covariance estimation based on geometry
-        baseline_distance = 0
-        if len(sensor_positions) >= 2:
-            baseline_distance = np.linalg.norm(sensor_positions[0] - sensor_positions[1])
-        
-        # Uncertainty scales with range and inversely with baseline
-        avg_range = np.mean([np.linalg.norm(pos) for pos in sensor_positions])
-        avg_confidence = np.mean(confidences)
-        
-        # Base uncertainty
-        base_std = max(1.0, avg_range / max(100.0, baseline_distance)) / avg_confidence
-        
-        # Create diagonal covariance (could be made more sophisticated)
-        covariance = np.eye(3) * (base_std ** 2)
-        
-        return covariance
 
 
 class TemporalTargetTracker:
@@ -1355,24 +768,15 @@ class TemporalTargetTracker:
         
     def update_tracks(self, detections: List[DetectedTarget], timestamp: float) -> List[DetectedTarget]:
         """Update target tracks with new detections"""
-        
-        # Remove old tracks
         self._prune_old_tracks(timestamp)
-        
-        # Associate detections with existing tracks
         associations = self._associate_detections_to_tracks(detections, timestamp)
         
-        # Update existing tracks and create new ones
         updated_detections = []
-        
         for detection, track_id in associations:
             if track_id is not None:
-                # Update existing track
                 updated_detection = self._update_existing_track(detection, track_id, timestamp)
             else:
-                # Create new track
                 updated_detection = self._create_new_track(detection, timestamp)
-            
             updated_detections.append(updated_detection)
         
         return updated_detections
@@ -1380,7 +784,6 @@ class TemporalTargetTracker:
     def _associate_detections_to_tracks(self, detections: List[DetectedTarget], 
                                       timestamp: float) -> List[Tuple[DetectedTarget, Optional[int]]]:
         """Associate detections with existing tracks using nearest neighbor"""
-        
         associations = []
         used_tracks = set()
         
@@ -1392,7 +795,6 @@ class TemporalTargetTracker:
                 if track_id in used_tracks:
                     continue
                 
-                # Predict track position at current time
                 predicted_pos = self._predict_track_position(track_data, timestamp)
                 distance = np.linalg.norm(detection.position - predicted_pos)
                 
@@ -1402,72 +804,55 @@ class TemporalTargetTracker:
             
             if best_track_id is not None:
                 used_tracks.add(best_track_id)
-            
             associations.append((detection, best_track_id))
         
         return associations
     
     def _predict_track_position(self, track_data: Dict, timestamp: float) -> np.ndarray:
         """Predict track position at given timestamp"""
-        
         if len(track_data['positions']) < 2:
             return track_data['positions'][-1]
         
-        # Simple linear extrapolation
         last_pos = track_data['positions'][-1]
         last_time = track_data['timestamps'][-1]
+        prev_pos = track_data['positions'][-2]
+        prev_time = track_data['timestamps'][-2]
         
-        if len(track_data['positions']) >= 2:
-            prev_pos = track_data['positions'][-2]
-            prev_time = track_data['timestamps'][-2]
-            
-            dt_history = last_time - prev_time
-            if dt_history > 0:
-                velocity = (last_pos - prev_pos) / dt_history
-                dt_predict = timestamp - last_time
-                predicted_pos = last_pos + velocity * dt_predict
-                return predicted_pos
+        if prev_time < last_time:
+            velocity = (last_pos - prev_pos) / (last_time - prev_time)
+            dt_predict = timestamp - last_time
+            return last_pos + velocity * dt_predict
         
         return last_pos
     
     def _update_existing_track(self, detection: DetectedTarget, track_id: int, 
                              timestamp: float) -> DetectedTarget:
         """Update existing track with new detection"""
-        
         track_data = self.tracks[track_id]
-        
-        # Add new position and timestamp
         track_data['positions'].append(detection.position)
         track_data['timestamps'].append(timestamp)
         track_data['confidences'].append(detection.confidence)
         
-        # Limit history length
         max_history = 20
         if len(track_data['positions']) > max_history:
             track_data['positions'] = track_data['positions'][-max_history:]
             track_data['timestamps'] = track_data['timestamps'][-max_history:]
             track_data['confidences'] = track_data['confidences'][-max_history:]
         
-        # Estimate velocity
         velocity = self._estimate_track_velocity(track_data)
+        smoothed_position = self._smooth_track_position(track_data)
         
-        # Update detection with track information
         detection.target_id = track_id
         detection.velocity = velocity
-        
-        # Smooth position using track history
-        smoothed_position = self._smooth_track_position(track_data)
         detection.position = smoothed_position
         
         return detection
     
     def _create_new_track(self, detection: DetectedTarget, timestamp: float) -> DetectedTarget:
         """Create new track for unassociated detection"""
-        
         track_id = self.next_track_id
         self.next_track_id += 1
         
-        # Initialize track data
         self.tracks[track_id] = {
             'positions': [detection.position],
             'timestamps': [timestamp],
@@ -1475,36 +860,32 @@ class TemporalTargetTracker:
             'created_time': timestamp
         }
         
-        # Update detection
         detection.target_id = track_id
-        detection.velocity = np.zeros(3)  # No velocity estimate yet
+        detection.velocity = np.zeros(3)
         
         return detection
     
     def _estimate_track_velocity(self, track_data: Dict) -> np.ndarray:
         """Estimate velocity from track history"""
-        
         if len(track_data['positions']) < 2:
             return np.zeros(3)
         
-        # Use multiple recent positions for robust velocity estimation
-        positions = np.array(track_data['positions'][-5:])  # Last 5 positions
+        positions = np.array(track_data['positions'][-5:])
         timestamps = np.array(track_data['timestamps'][-5:])
         
         if len(positions) < 2:
             return np.zeros(3)
         
-        # Linear regression for velocity estimation
-        dt = timestamps - timestamps[0]
-        dt = dt.reshape(-1, 1)
-        
         velocities = []
         for axis in range(3):
             pos_axis = positions[:, axis]
-            if len(pos_axis) > 1 and np.std(dt.flatten()) > 0:
-                # Simple finite difference
-                vel = (pos_axis[-1] - pos_axis[0]) / (dt[-1] - dt[0])
-                velocities.append(vel)
+            if len(pos_axis) > 1:
+                dt = timestamps[-1] - timestamps[0]
+                if dt > 0:
+                    vel = (pos_axis[-1] - pos_axis[0]) / dt
+                    velocities.append(vel)
+                else:
+                    velocities.append(0.0)
             else:
                 velocities.append(0.0)
         
@@ -1512,31 +893,23 @@ class TemporalTargetTracker:
     
     def _smooth_track_position(self, track_data: Dict) -> np.ndarray:
         """Apply smoothing to track position"""
-        
-        positions = np.array(track_data['positions'][-3:])  # Last 3 positions
+        positions = np.array(track_data['positions'][-3:])
         confidences = np.array(track_data['confidences'][-3:])
         
-        # Weighted average based on confidences
-        if np.sum(confidences) > 1e-6:  # Avoid division by zero
+        if np.sum(confidences) > 1e-6:
             weights = confidences / np.sum(confidences)
             smoothed_pos = np.average(positions, axis=0, weights=weights)
         else:
-            # Fallback to simple average if confidences are zero
             smoothed_pos = np.mean(positions, axis=0)
         
         return smoothed_pos
     
     def _prune_old_tracks(self, current_time: float):
         """Remove tracks that haven't been updated recently"""
-        
-        tracks_to_remove = []
-        
-        for track_id, track_data in self.tracks.items():
-            last_update = track_data['timestamps'][-1]
-            age = current_time - last_update
-            
-            if age > self.max_track_age:
-                tracks_to_remove.append(track_id)
+        tracks_to_remove = [
+            track_id for track_id, track_data in self.tracks.items()
+            if current_time - track_data['timestamps'][-1] > self.max_track_age
+        ]
         
         for track_id in tracks_to_remove:
             del self.tracks[track_id]
@@ -1553,11 +926,9 @@ class PerformanceMonitor:
     def record_frame(self, processing_time: float, num_targets: int, 
                     num_observations: int, grid: VoxelGrid):
         """Record performance metrics for single frame"""
-        
-        # Calculate memory usage
         grid_memory = (grid.occupancy_probs.nbytes + 
                       grid.confidence_scores.nbytes + 
-                      grid.last_update_time.nbytes) / (1024 * 1024)  # MB
+                      grid.last_update_time.nbytes) / (1024 * 1024)
         
         metrics = {
             'processing_time': processing_time,
@@ -1572,17 +943,15 @@ class PerformanceMonitor:
         self.processing_times.append(processing_time)
         self.memory_usage.append(grid_memory)
         
-        # Keep only recent metrics
         if len(self.frame_metrics) > 1000:
             self.frame_metrics = self.frame_metrics[-1000:]
     
     def get_summary(self) -> Dict:
         """Get performance summary statistics"""
-        
         if not self.frame_metrics:
             return {}
         
-        recent_metrics = self.frame_metrics[-50:]  # Last 50 frames
+        recent_metrics = self.frame_metrics[-50:]
         
         summary = {
             'avg_processing_time': np.mean([m['processing_time'] for m in recent_metrics]),
@@ -1597,8 +966,6 @@ class PerformanceMonitor:
     
     def _calculate_efficiency(self, metrics: List[Dict]) -> float:
         """Calculate computational efficiency metric"""
-        
-        # Efficiency = (targets detected per second) / (processing time)
         total_targets = sum(m['num_targets'] for m in metrics)
         total_time = sum(m['processing_time'] for m in metrics)
         
