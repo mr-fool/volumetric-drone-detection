@@ -1,0 +1,60 @@
+Quick Volumetric Detection Test
+========================================
+Setup complete: 8 cameras
+Generated trajectories: (5, 4, 3)
+
+Testing triangulation:
+  Observations: 8 sensors, 19 detections
+  Processing: 2.9ms obs + 6.2ms detect = 9.1ms total
+  Results: 15 targets detected
+    Target 1: pos=[176.39320225 500.         201.00744825], conf=0.402
+    Target 2: pos=[400.         427.3457472  254.51000553], conf=0.396
+    Target 3: pos=[176.39320225 264.88589908 184.6731714 ], conf=0.465
+    Target 4: pos=[400.         192.23164628 238.17572867], conf=0.446
+    Target 5: pos=[400.         807.76835372 197.92753484], conf=0.371
+    Target 6: pos=[400.         572.6542528  181.59325798], conf=0.418
+    Target 7: pos=[538.19660113 617.55705046 206.25590252], conf=0.341
+    Target 8: pos=[538.19660113 382.44294954 189.92162566], conf=0.412
+    Target 9: pos=[176.39320225 735.11410092 217.3417251 ], conf=0.334
+    Target 10: pos=[623.60679775 500.         235.09581526], conf=0.417
+    Target 11: pos=[623.60679775 119.57739348 291.67828595], conf=0.457
+    Target 12: pos=[761.80339887 309.78869674 243.42418294], conf=0.414
+    Target 13: pos=[761.80339887 690.21130326 186.84171225], conf=0.379
+    Target 14: pos=[623.60679775 880.42260652 178.51334457], conf=0.392
+    Target 15: pos=[900.         500.         195.17007993], conf=0.348
+
+Testing space_carving:
+    Processing 19 detection positions for space carving
+    Space carving created 5 targets from 19 detections
+  Observations: 8 sensors, 19 detections
+  Processing: 2.5ms obs + 0.9ms detect = 3.4ms total
+  Results: 5 targets detected
+    Target 1: pos=[176.39320225 735.11410092 217.3417251 ], conf=0.456
+    Target 2: pos=[176.39320225 264.88589908 184.6731714 ], conf=0.533
+    Target 3: pos=[623.60679775 119.57739348 291.67828595], conf=0.524
+    Target 4: pos=[623.60679775 880.42260652 178.51334457], conf=0.589
+    Target 5: pos=[900.         500.         195.17007993], conf=0.517
+
+Testing hybrid:
+    Processing 19 detection positions for space carving
+    Space carving created 5 targets from 19 detections
+  Observations: 8 sensors, 19 detections
+  Processing: 2.4ms obs + 7.7ms detect = 10.2ms total
+  Results: 15 targets detected
+    Target 1: pos=[176.39320225 500.         201.00744825], conf=0.361
+    Target 2: pos=[400.         427.3457472  254.51000553], conf=0.369
+    Target 3: pos=[176.39320225 264.88589908 184.6731714 ], conf=0.445
+    Target 4: pos=[400.         192.23164628 238.17572867], conf=0.372
+    Target 5: pos=[400.         807.76835372 197.92753484], conf=0.369
+    Target 6: pos=[400.         572.6542528  181.59325798], conf=0.372
+    Target 7: pos=[538.19660113 617.55705046 206.25590252], conf=0.334
+    Target 8: pos=[538.19660113 382.44294954 189.92162566], conf=0.351
+    Target 9: pos=[176.39320225 735.11410092 217.3417251 ], conf=0.401
+    Target 10: pos=[623.60679775 500.         235.09581526], conf=0.381
+    Target 11: pos=[623.60679775 119.57739348 291.67828595], conf=0.448
+    Target 12: pos=[761.80339887 309.78869674 243.42418294], conf=0.359
+    Target 13: pos=[761.80339887 690.21130326 186.84171225], conf=0.361
+    Target 14: pos=[623.60679775 880.42260652 178.51334457], conf=0.479
+    Target 15: pos=[900.         500.         195.17007993], conf=0.389
+
+Quick test completed!

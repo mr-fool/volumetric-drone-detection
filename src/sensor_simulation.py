@@ -9,6 +9,8 @@ from mpl_toolkits.mplot3d import Axes3D
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict, Union
 from enum import Enum
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import cpu_count
 import time
 
 class SensorType(Enum):
@@ -214,6 +216,36 @@ class VirtualSensorArray:
             
         return observations
     
+    def observe_targets_parallel(self, drone_positions: np.ndarray, 
+                                timestamp: float, max_workers: int = None) -> List[SensorObservation]:
+        """
+        Parallel version of observe_targets - processes cameras simultaneously
+
+        Args:
+            drone_positions: Array of shape (num_drones, 3) with [x, y, z] positions
+            timestamp: Current simulation time
+            max_workers: Maximum number of worker threads (default: auto-detect)
+
+        Returns:
+            List of sensor observations from each camera (same format as observe_targets)
+        """
+        if max_workers is None:
+            max_workers = min(cpu_count(), len(self.cameras), 8)
+
+        self.current_time = timestamp
+
+        def process_camera(camera):
+            """Process a single camera - same logic as the original"""
+            return self._simulate_camera_observation(camera, drone_positions, timestamp)
+
+        # Process all cameras in parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(process_camera, camera) for camera in self.cameras]
+            observations = [future.result() for future in futures]
+
+        return observations
+
+
     def _simulate_camera_observation(self, camera: CameraPosition, 
                                    drone_positions: np.ndarray,
                                    timestamp: float) -> SensorObservation:

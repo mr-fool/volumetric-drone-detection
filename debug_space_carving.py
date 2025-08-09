@@ -1,188 +1,178 @@
 """
-Debug test for space carving algorithm
-Tests the space carving implementation step by step
+Debug version of space carving to identify why no targets are detected
 """
 
-import sys
-import os
-import numpy as np
-
-class TeeOutput:
-    """Class to output to both console and file simultaneously"""
-    def __init__(self, filename):
-        self.terminal = sys.stdout
-        self.log = open(filename, 'w', encoding='utf-8')
+def _parallel_space_carving_debug(self, observations, timestamp, max_workers):
+    """Debug version with detailed logging"""
     
-    def write(self, message):
-        self.terminal.write(message)
-        self.terminal.flush()
-        self.log.write(message)
-        self.log.flush()
+    # Step 1: Get detection positions to focus search area
+    detection_positions = []
+    for obs in observations:
+        for obj in obs.detected_objects:
+            detection_positions.append(obj['world_position'])
     
-    def flush(self):
-        self.terminal.flush()
-        self.log.flush()
+    if not detection_positions:
+        print("    DEBUG: No detection positions found")
+        return []
     
-    def close(self):
-        self.log.close()
-
-# Add src directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-try:
-    from drone_trajectory_generator import DroneSwarmGenerator, FlightPattern, SimulationBounds
-    from sensor_simulation import create_standard_sensor_array
-    from volumetric_detection import VolumetricDetectionPipeline, DetectionMethod
+    detection_positions = np.array(detection_positions)
+    print(f"    DEBUG: Found {len(detection_positions)} detection positions")
+    print(f"    DEBUG: Detection positions range: X[{detection_positions[:, 0].min():.1f}, {detection_positions[:, 0].max():.1f}]")
+    print(f"    DEBUG:                           Y[{detection_positions[:, 1].min():.1f}, {detection_positions[:, 1].max():.1f}]")
+    print(f"    DEBUG:                           Z[{detection_positions[:, 2].min():.1f}, {detection_positions[:, 2].max():.1f}]")
     
-    def debug_space_carving():
-        print("DEBUG: Space Carving Algorithm Test")
-        print("=" * 50)
+    # Step 2: Create focused voxel grid around detections only
+    search_radius = self.voxel_resolution * 8  # Increased search radius
+    focused_coords = self._get_focused_voxel_coordinates(detection_positions, search_radius)
+    
+    print(f"    DEBUG: Search radius: {search_radius:.1f}m, Voxel resolution: {self.voxel_resolution:.1f}m")
+    print(f"    DEBUG: Focused search: {len(focused_coords):,} voxels")
+    
+    if len(focused_coords) == 0:
+        print("    DEBUG: No focused coordinates generated")
+        return []
+    
+    # Test a few sample voxels
+    sample_results = []
+    max_samples = min(100, len(focused_coords))
+    sample_indices = np.linspace(0, len(focused_coords)-1, max_samples, dtype=int)
+    
+    for i in sample_indices[:10]:  # Test first 10 samples
+        voxel_coord = focused_coords[i]
         
-        # Setup
-        bounds = SimulationBounds()
-        drone_generator = DroneSwarmGenerator(bounds)
-        sensor_array = create_standard_sensor_array(bounds, "perimeter")
-        detection_pipeline = VolumetricDetectionPipeline(bounds, voxel_resolution=2.0)
+        # Check distance to detections
+        distances = np.linalg.norm(detection_positions - voxel_coord, axis=1)
+        min_dist = np.min(distances)
         
-        print(f"Grid dimensions: {detection_pipeline.grid.dimensions}")
-        print(f"Grid origin: {detection_pipeline.grid.origin}")
-        print(f"Grid resolution: {detection_pipeline.grid.resolution}")
-        print(f"Number of sensors: {len(sensor_array.cameras)}")
+        # Check consistency
+        is_consistent = self._is_voxel_consistent_fast_debug(voxel_coord, observations, detection_positions)
         
-        # Generate simple test scenario
-        trajectory_data = drone_generator.generate_swarm_trajectories(
-            num_drones=5,
-            pattern=FlightPattern.FORMATION_FLYING,  # This works better
-            duration=1.0,
-            timestep=1.0,
-            drone_type='small'
-        )
+        # Calculate confidence
+        confidence = self._calculate_voxel_confidence_fast(voxel_coord, observations)
         
-        trajectories = trajectory_data['trajectories']
-        times = trajectory_data['times']
+        sample_results.append({
+            'voxel': voxel_coord,
+            'min_dist': min_dist,
+            'is_consistent': is_consistent,
+            'confidence': confidence,
+            'passes_dist_check': min_dist < self.voxel_resolution * 4
+        })
+    
+    print(f"    DEBUG: Sample voxel analysis:")
+    for i, result in enumerate(sample_results):
+        print(f"      Voxel {i}: dist={result['min_dist']:.1f}, consistent={result['is_consistent']}, conf={result['confidence']:.3f}, passes_dist={result['passes_dist_check']}")
+    
+    # Count how many voxels pass each filter
+    passing_distance = 0
+    passing_consistency = 0
+    passing_confidence = 0
+    
+    for voxel_coord in focused_coords[:1000]:  # Check first 1000 to avoid slowdown
+        distances = np.linalg.norm(detection_positions - voxel_coord, axis=1)
+        min_dist = np.min(distances)
         
-        # Test one frame
-        drone_positions = trajectories[:, 0, :]
-        timestamp = times[0]
-        
-        print(f"\nDrone positions:")
-        for i, pos in enumerate(drone_positions):
-            print(f"  Drone {i}: {pos}")
-        
-        # Get sensor observations
-        observations = sensor_array.observe_targets(drone_positions, timestamp)
-        
-        print(f"\nSensor observations:")
-        total_detections = 0
-        for obs in observations:
-            print(f"  {obs.camera_id}: {len(obs.detected_objects)} detections")
-            total_detections += len(obs.detected_objects)
+        if min_dist < self.voxel_resolution * 4:
+            passing_distance += 1
             
-            for j, obj in enumerate(obs.detected_objects):
-                print(f"    Detection {j}: {obj['world_position']}")
-        
-        print(f"Total detections across all sensors: {total_detections}")
-        
-        if total_detections == 0:
-            print("ERROR: No detections from sensors - cannot test space carving")
-            return
-        
-        # Test space carving directly
-        print(f"\nTesting space carving algorithm...")
-        space_carver = detection_pipeline.space_carver
-        
-        import time
-        carving_start = time.time()
-        
-        # Test carving
-        carved_volume = space_carver.carve_space(observations, timestamp)
-        
-        carving_time = time.time() - carving_start
-        carved_voxels = np.sum(carved_volume)
-        
-        print(f"Space carving completed in {carving_time:.2f} seconds")
-        print(f"Carved volume voxels: {carved_voxels}")
-        print(f"Carved volume percentage: {carved_voxels / np.prod(carved_volume.shape) * 100:.2f}%")
-        
-        # WARNING: Check for over-carving
-        if carved_voxels > np.prod(carved_volume.shape) * 0.1:  # More than 10% carved
-            print(f"WARNING: Space carving carved {carved_voxels / np.prod(carved_volume.shape) * 100:.1f}% of total volume!")
-            print("This indicates over-carving - algorithm may be too permissive")
-        elif carved_voxels == 0:
-            print("WARNING: No voxels carved - algorithm may be too restrictive")
-        else:
-            print(f"Space carving looks reasonable ({carved_voxels} voxels)")
-        
-        if carved_voxels > 0:
-            # Find carved regions
-            carved_coords = np.where(carved_volume)
-            print(f"Carved regions found at {len(carved_coords[0])} voxels")
-            
-            # Show some carved voxel coordinates
-            for i in range(min(5, len(carved_coords[0]))):
-                voxel_coord = [carved_coords[0][i], carved_coords[1][i], carved_coords[2][i]]
-                world_coord = (detection_pipeline.grid.origin + 
-                             np.array(voxel_coord) * detection_pipeline.grid.resolution)
-                print(f"  Voxel {voxel_coord} -> World {world_coord}")
-        else:
-            print("ERROR: No voxels carved - debugging space carving algorithm...")
-            
-            # Debug sensor positions
-            print("\nDEBUG: Sensor positions:")
-            for obs in observations:
-                if len(obs.detected_objects) > 0:
-                    sensor_pos = space_carver._estimate_sensor_position(obs.camera_id)
-                    print(f"  {obs.camera_id}: {sensor_pos}")
-            
-            # Debug detection positions vs sensor positions
-            print("\nDEBUG: Detection analysis:")
-            for obs in observations:
-                if len(obs.detected_objects) > 0:
-                    sensor_pos = space_carver._estimate_sensor_position(obs.camera_id)
-                    for obj in obs.detected_objects:
-                        det_pos = obj['world_position']
-                        distance = np.linalg.norm(np.array(det_pos) - np.array(sensor_pos))
-                        print(f"  Detection at {det_pos}, sensor at {sensor_pos}, distance: {distance:.1f}m")
-        
-        # Test space carving with different methods
-        print(f"\nTesting all detection methods:")
-        
-        methods = [DetectionMethod.SPACE_CARVING, DetectionMethod.TRIANGULATION, DetectionMethod.HYBRID]
-        
-        for method in methods:
-            try:
-                detected_targets = detection_pipeline.process_sensor_observations(
-                    observations, timestamp, method
-                )
-                print(f"  {method.value}: {len(detected_targets)} targets detected")
+            if self._is_voxel_consistent_fast_debug(voxel_coord, observations, detection_positions):
+                passing_consistency += 1
                 
-                for i, target in enumerate(detected_targets):
-                    print(f"    Target {i}: pos={target.position}, conf={target.confidence:.3f}, method={target.detection_method.value}")
+                confidence = self._calculate_voxel_confidence_fast(voxel_coord, observations)
+                if confidence >= 0.2:
+                    passing_confidence += 1
+    
+    print(f"    DEBUG: Filter analysis (first 1000 voxels):")
+    print(f"      Passing distance filter: {passing_distance}/1000")
+    print(f"      Passing consistency filter: {passing_consistency}/1000") 
+    print(f"      Passing confidence filter: {passing_confidence}/1000")
+    
+    # Original processing with reduced sample for speed
+    chunk_size = max(1, len(focused_coords) // max_workers)
+    voxel_chunks = [focused_coords[i:i + chunk_size] 
+                   for i in range(0, len(focused_coords), chunk_size)]
+    
+    def process_voxel_chunk_debug(chunk):
+        """Process a chunk of voxels with debug info"""
+        chunk_results = []
+        chunk_stats = {
+            'total': len(chunk),
+            'distance_pass': 0,
+            'consistency_pass': 0,
+            'confidence_pass': 0
+        }
+        
+        for voxel_coord in chunk:
+            distances = np.linalg.norm(detection_positions - voxel_coord, axis=1)
+            min_dist = np.min(distances)
+            
+            if min_dist < self.voxel_resolution * 4:
+                chunk_stats['distance_pass'] += 1
+                
+                if self._is_voxel_consistent_fast_debug(voxel_coord, observations, detection_positions):
+                    chunk_stats['consistency_pass'] += 1
+                    confidence = self._calculate_voxel_confidence_fast(voxel_coord, observations)
                     
-            except Exception as e:
-                print(f"  {method.value}: ERROR - {e}")
+                    if confidence >= 0.2:
+                        chunk_stats['confidence_pass'] += 1
+                        chunk_results.append({
+                            'position': voxel_coord,
+                            'confidence': confidence,
+                            'method': 'space_carving'
+                        })
         
-        print(f"\nSpace carving debug test completed!")
+        return chunk_results, chunk_stats
+    
+    # Process first chunk only for debugging
+    if voxel_chunks:
+        results, stats = process_voxel_chunk_debug(voxel_chunks[0])
+        print(f"    DEBUG: First chunk stats: {stats}")
+        print(f"    DEBUG: First chunk results: {len(results)} voxels passed all filters")
         
-    if __name__ == "__main__":
-        # Setup dual output to both console and file
-        output_filename = 'debug_space_carving_results_final.txt'
-        tee_output = TeeOutput(output_filename)
-        original_stdout = sys.stdout
-        sys.stdout = tee_output
-        
-        try:
-            debug_space_carving()
-            print(f"\nDebug results saved to: {output_filename}")
-        finally:
-            # Restore original stdout and close file
-            sys.stdout = original_stdout
-            tee_output.close()
-        
-except ImportError as e:
-    print(f"Import error: {e}")
-    print("Make sure all files are in the src/ directory")
-except Exception as e:
-    print(f"Test error: {e}")
-    import traceback
-    traceback.print_exc()
+        if len(results) > 0:
+            print(f"    DEBUG: Sample result confidence values: {[r['confidence'] for r in results[:5]]}")
+    
+    # For now, return empty to avoid full processing
+    return []
+
+def _is_voxel_consistent_fast_debug(self, voxel_coord, observations, detection_positions):
+    """Debug version of consistency check"""
+    # Pre-filter: must be close to at least one detection
+    distances_to_detections = np.linalg.norm(detection_positions - voxel_coord, axis=1)
+    min_detection_dist = np.min(distances_to_detections)
+    
+    if min_detection_dist > self.voxel_resolution * 5:
+        return False
+    
+    # More lenient consistency check
+    consistent_count = 0
+    observation_details = []
+    
+    for obs in observations:
+        if len(obs.detected_objects) > 0:
+            obs_positions = np.array([det['world_position'] for det in obs.detected_objects])
+            distances = np.linalg.norm(obs_positions - voxel_coord, axis=1)
+            min_obs_dist = np.min(distances)
+            
+            is_close = min_obs_dist < self.voxel_resolution * 4
+            observation_details.append({
+                'camera': obs.camera_id,
+                'num_detections': len(obs.detected_objects),
+                'min_distance': min_obs_dist,
+                'is_close': is_close
+            })
+            
+            if is_close:
+                consistent_count += 1
+    
+    # Debug print for first few voxels
+    if len(observation_details) > 0 and min_detection_dist < self.voxel_resolution * 2:
+        pass  # Could add detailed logging here if needed
+    
+    return consistent_count >= 1
+
+# Add these debug methods to your VolumetricDetectionPipeline class
+def add_debug_methods_to_pipeline(pipeline):
+    """Add debug methods to existing pipeline instance"""
+    import types
+    pipeline._parallel_space_carving_debug = types.MethodType(_parallel_space_carving_debug, pipeline)
+    pipeline._is_voxel_consistent_fast_debug = types.MethodType(_is_voxel_consistent_fast_debug, pipeline)
