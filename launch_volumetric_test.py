@@ -1,10 +1,12 @@
 """
 Safe launcher for volumetric detection test
 Handles missing dependencies gracefully and provides dual output
+Supports both parallel and sequential processing modes
 """
 
 import sys
 import os
+import argparse
 
 class TeeOutput:
     """Class to output to both console and file simultaneously"""
@@ -56,11 +58,22 @@ def check_dependencies():
 def main():
     """Main launcher function"""
     
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Volumetric Detection Pipeline Test Launcher')
+    parser.add_argument('--parallel', action='store_true', 
+                       help='Use parallel processing for faster validation')
+    parser.add_argument('--sequential', action='store_true',
+                       help='Use sequential processing (original)')
+    args = parser.parse_args()
+    
+    # Default to parallel if no specific mode chosen
+    use_parallel = args.parallel or not args.sequential
+    
     if not check_dependencies():
         sys.exit(1)
     
     # Setup dual output to both console and file
-    output_filename = 'validation_results_fixed.txt'
+    output_filename = 'validation_results_parallel.txt' if use_parallel else 'validation_results_sequential.txt'
     tee_output = TeeOutput(output_filename)
     original_stdout = sys.stdout
     sys.stdout = tee_output
@@ -71,16 +84,23 @@ def main():
         if os.path.exists(src_dir):
             sys.path.insert(0, src_dir)
         
-        # Import and run the test
-        from volumetric_integration_test import run_integration_test
+        # Import and run the appropriate test
+        if use_parallel:
+            print("Starting Parallel Volumetric Detection Pipeline Integration Test...")
+            print("Research validation framework with multiprocessing acceleration")
+            from parallel_volumetric_test import run_parallel_integration_test
+            test_runner = run_parallel_integration_test
+        else:
+            print("Starting Sequential Volumetric Detection Pipeline Integration Test...")
+            print("Research validation framework for multi-drone swarm detection")
+            from volumetric_integration_test import run_integration_test
+            test_runner = run_integration_test
         
-        print("Starting Volumetric Detection Pipeline Integration Test...")
-        print("Validation")
         print(f"Results will be saved to: {output_filename}")
         print()
         
-        # Run comprehensive test
-        test_results = run_integration_test()
+        # Run test
+        test_results = test_runner()
         
         print("\nIntegration test completed!")
         print("Check 'volumetric_detection_validation.json' for detailed results.")
@@ -94,6 +114,10 @@ def main():
         print("  - volumetric_detection.py should be in src/ directory")
         print("  - drone_trajectory_generator.py should be in src/ directory")
         print("  - sensor_simulation.py should be in src/ directory")
+        if use_parallel:
+            print("  - parallel_volumetric_test.py should be in root directory")
+        else:
+            print("  - volumetric_integration_test.py should be in root directory")
         sys.exit(1)
     
     except Exception as e:
