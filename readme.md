@@ -363,7 +363,7 @@ python quick_validation_test_optimized.py
 
 The system has been tested and validated on desktop hardware:
 - **CPU**: AMD Ryzen 5 5600 (12 cores)
-- **RAM**: 32GB DDR4
+- **RAM**: 64GB DDR4
 - **GPU**: RTX 3060 12GB (optional)
 - **OS**: Windows 11
 
