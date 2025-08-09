@@ -1,0 +1,138 @@
+{
+  "timestamp": "2025-08-09T12:37:54.222687",
+  "parameters": {
+    "resolution": 10.0,
+    "drones": 5,
+    "duration": 2.0,
+    "voxel_count": 450000,
+    "memory_mb": 10.2996826171875
+  },
+  "results": {
+    "triangulation": [
+      {
+        "frame": 0,
+        "timestamp": 0.0,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 15,
+        "obs_time_ms": 3.1363964080810547,
+        "detect_time_ms": 6.578207015991211,
+        "total_time_ms": 9.714603424072266
+      },
+      {
+        "frame": 1,
+        "timestamp": 0.6666666666666666,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 15,
+        "obs_time_ms": 2.4576187133789062,
+        "detect_time_ms": 7.475614547729492,
+        "total_time_ms": 9.933233261108398
+      },
+      {
+        "frame": 2,
+        "timestamp": 1.3333333333333333,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 15,
+        "obs_time_ms": 2.5773048400878906,
+        "detect_time_ms": 6.14619255065918,
+        "total_time_ms": 8.72349739074707
+      },
+      {
+        "frame": 3,
+        "timestamp": 2.0,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 15,
+        "obs_time_ms": 2.4945735931396484,
+        "detect_time_ms": 7.049083709716797,
+        "total_time_ms": 9.543657302856445
+      }
+    ],
+    "space_carving": [
+      {
+        "frame": 0,
+        "timestamp": 0.0,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 5,
+        "obs_time_ms": 2.6519298553466797,
+        "detect_time_ms": 1.0426044464111328,
+        "total_time_ms": 3.6945343017578125
+      },
+      {
+        "frame": 1,
+        "timestamp": 0.6666666666666666,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 5,
+        "obs_time_ms": 2.233266830444336,
+        "detect_time_ms": 1.1107921600341797,
+        "total_time_ms": 3.3440589904785156
+      },
+      {
+        "frame": 2,
+        "timestamp": 1.3333333333333333,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 5,
+        "obs_time_ms": 2.4755001068115234,
+        "detect_time_ms": 0.9615421295166016,
+        "total_time_ms": 3.437042236328125
+      },
+      {
+        "frame": 3,
+        "timestamp": 2.0,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 5,
+        "obs_time_ms": 2.921581268310547,
+        "detect_time_ms": 0.9448528289794922,
+        "total_time_ms": 3.866434097290039
+      }
+    ],
+    "hybrid": [
+      {
+        "frame": 0,
+        "timestamp": 0.0,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 15,
+        "obs_time_ms": 2.8657913208007812,
+        "detect_time_ms": 9.831905364990234,
+        "total_time_ms": 12.697696685791016
+      },
+      {
+        "frame": 1,
+        "timestamp": 0.6666666666666666,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 15,
+        "obs_time_ms": 3.861665725708008,
+        "detect_time_ms": 12.096166610717773,
+        "total_time_ms": 15.957832336425781
+      },
+      {
+        "frame": 2,
+        "timestamp": 1.3333333333333333,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 15,
+        "obs_time_ms": 2.820730209350586,
+        "detect_time_ms": 10.493755340576172,
+        "total_time_ms": 13.314485549926758
+      },
+      {
+        "frame": 3,
+        "timestamp": 2.0,
+        "observations": 8,
+        "detections": 20,
+        "targets_found": 15,
+        "obs_time_ms": 2.5949478149414062,
+        "detect_time_ms": 8.397102355957031,
+        "total_time_ms": 10.992050170898438
+      }
+    ]
+  }
+}

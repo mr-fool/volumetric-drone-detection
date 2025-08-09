@@ -1,0 +1,415 @@
+{
+  "timestamp": "2025-08-09T12:34:39.359177",
+  "configurations": [
+    {
+      "name": "minimal",
+      "parameters": {
+        "resolution": 10.0,
+        "drones": 5,
+        "duration": 2.0,
+        "name": "minimal",
+        "voxels": 450000,
+        "memory_mb": 10.2996826171875
+      },
+      "methods": {
+        "triangulation": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 8.308649063110352,
+              "targets": 15,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 1,
+              "time_ms": 7.895708084106445,
+              "targets": 15,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 2,
+              "time_ms": 8.986949920654297,
+              "targets": 15,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 3,
+              "time_ms": 8.877754211425781,
+              "targets": 15,
+              "observations": 8,
+              "detections": 17
+            }
+          ],
+          "total_time_ms": 34.069061279296875,
+          "avg_time_ms": 8.517265319824219,
+          "total_targets": 60,
+          "avg_targets": 15.0
+        },
+        "space_carving": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 3.0488967895507812,
+              "targets": 5,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 1,
+              "time_ms": 2.8200149536132812,
+              "targets": 5,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 2,
+              "time_ms": 3.170490264892578,
+              "targets": 5,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 3,
+              "time_ms": 3.039836883544922,
+              "targets": 5,
+              "observations": 8,
+              "detections": 17
+            }
+          ],
+          "total_time_ms": 12.079238891601562,
+          "avg_time_ms": 3.0198097229003906,
+          "total_targets": 20,
+          "avg_targets": 5.0
+        },
+        "hybrid": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 9.552717208862305,
+              "targets": 15,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 1,
+              "time_ms": 10.046243667602539,
+              "targets": 15,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 2,
+              "time_ms": 9.440183639526367,
+              "targets": 15,
+              "observations": 8,
+              "detections": 17
+            },
+            {
+              "frame": 3,
+              "time_ms": 10.34092903137207,
+              "targets": 15,
+              "observations": 8,
+              "detections": 17
+            }
+          ],
+          "total_time_ms": 39.38007354736328,
+          "avg_time_ms": 9.84501838684082,
+          "total_targets": 60,
+          "avg_targets": 15.0
+        }
+      }
+    },
+    {
+      "name": "light",
+      "parameters": {
+        "resolution": 7.0,
+        "drones": 8,
+        "duration": 3.0,
+        "name": "light",
+        "voxels": 1329185,
+        "memory_mb": 30.422630310058594
+      },
+      "methods": {
+        "triangulation": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 18.124818801879883,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 1,
+              "time_ms": 18.259525299072266,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 2,
+              "time_ms": 18.925189971923828,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 3,
+              "time_ms": 18.105506896972656,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 4,
+              "time_ms": 18.055438995361328,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            }
+          ],
+          "total_time_ms": 91.47047996520996,
+          "avg_time_ms": 18.294095993041992,
+          "total_targets": 175,
+          "avg_targets": 35.0
+        },
+        "space_carving": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 4.566669464111328,
+              "targets": 8,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 1,
+              "time_ms": 4.471063613891602,
+              "targets": 8,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 2,
+              "time_ms": 4.218101501464844,
+              "targets": 8,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 3,
+              "time_ms": 4.677295684814453,
+              "targets": 8,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 4,
+              "time_ms": 6.044626235961914,
+              "targets": 8,
+              "observations": 8,
+              "detections": 24
+            }
+          ],
+          "total_time_ms": 23.97775650024414,
+          "avg_time_ms": 4.795551300048828,
+          "total_targets": 40,
+          "avg_targets": 8.0
+        },
+        "hybrid": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 31.74448013305664,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 1,
+              "time_ms": 22.8884220123291,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 2,
+              "time_ms": 23.190021514892578,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 3,
+              "time_ms": 22.034168243408203,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            },
+            {
+              "frame": 4,
+              "time_ms": 23.574352264404297,
+              "targets": 35,
+              "observations": 8,
+              "detections": 24
+            }
+          ],
+          "total_time_ms": 123.43144416809082,
+          "avg_time_ms": 24.686288833618164,
+          "total_targets": 175,
+          "avg_targets": 35.0
+        }
+      }
+    },
+    {
+      "name": "moderate",
+      "parameters": {
+        "resolution": 5.0,
+        "drones": 12,
+        "duration": 4.0,
+        "name": "moderate",
+        "voxels": 3600000,
+        "memory_mb": 82.3974609375
+      },
+      "methods": {
+        "triangulation": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 113.87777328491211,
+              "targets": 77,
+              "observations": 8,
+              "detections": 50
+            },
+            {
+              "frame": 1,
+              "time_ms": 108.23655128479004,
+              "targets": 77,
+              "observations": 8,
+              "detections": 49
+            },
+            {
+              "frame": 2,
+              "time_ms": 110.33868789672852,
+              "targets": 77,
+              "observations": 8,
+              "detections": 50
+            },
+            {
+              "frame": 3,
+              "time_ms": 105.7593822479248,
+              "targets": 77,
+              "observations": 8,
+              "detections": 49
+            },
+            {
+              "frame": 4,
+              "time_ms": 105.65876960754395,
+              "targets": 77,
+              "observations": 8,
+              "detections": 49
+            }
+          ],
+          "total_time_ms": 543.8711643218994,
+          "avg_time_ms": 108.77423286437988,
+          "total_targets": 385,
+          "avg_targets": 77.0
+        },
+        "space_carving": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 7.90095329284668,
+              "targets": 12,
+              "observations": 8,
+              "detections": 50
+            },
+            {
+              "frame": 1,
+              "time_ms": 7.793426513671875,
+              "targets": 12,
+              "observations": 8,
+              "detections": 49
+            },
+            {
+              "frame": 2,
+              "time_ms": 7.852077484130859,
+              "targets": 12,
+              "observations": 8,
+              "detections": 50
+            },
+            {
+              "frame": 3,
+              "time_ms": 7.612705230712891,
+              "targets": 12,
+              "observations": 8,
+              "detections": 49
+            },
+            {
+              "frame": 4,
+              "time_ms": 7.308006286621094,
+              "targets": 12,
+              "observations": 8,
+              "detections": 49
+            }
+          ],
+          "total_time_ms": 38.4671688079834,
+          "avg_time_ms": 7.69343376159668,
+          "total_targets": 60,
+          "avg_targets": 12.0
+        },
+        "hybrid": {
+          "frames": [
+            {
+              "frame": 0,
+              "time_ms": 127.18701362609863,
+              "targets": 77,
+              "observations": 8,
+              "detections": 50
+            },
+            {
+              "frame": 1,
+              "time_ms": 119.40264701843262,
+              "targets": 77,
+              "observations": 8,
+              "detections": 49
+            },
+            {
+              "frame": 2,
+              "time_ms": 123.55446815490723,
+              "targets": 77,
+              "observations": 8,
+              "detections": 50
+            },
+            {
+              "frame": 3,
+              "time_ms": 118.14355850219727,
+              "targets": 77,
+              "observations": 8,
+              "detections": 49
+            },
+            {
+              "frame": 4,
+              "time_ms": 118.34406852722168,
+              "targets": 77,
+              "observations": 8,
+              "detections": 49
+            }
+          ],
+          "total_time_ms": 606.6317558288574,
+          "avg_time_ms": 121.32635116577148,
+          "total_targets": 385,
+          "avg_targets": 77.0
+        }
+      }
+    }
+  ],
+  "summary": {
+    "successful_configurations": 3,
+    "total_configurations": 3,
+    "test_status": "SUCCESS"
+  }
+}

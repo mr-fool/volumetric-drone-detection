@@ -1,0 +1,56 @@
+Launch Issue Debugging
+==================================================
+1. Checking test files:
+[FOUND] parallel_volumetric_test.py exists (30736 bytes)
+[FOUND] volumetric_integration_test.py exists (36057 bytes)
+
+2. Checking core file dependencies:
+[FOUND] src/volumetric_detection.py exists (36274 bytes)
+[FOUND] src/drone_trajectory_generator.py exists (16731 bytes)
+[FOUND] src/sensor_simulation.py exists (28016 bytes)
+
+3. Testing imports:
+Testing import: parallel_volumetric_test
+  [SUCCESS] Import successful (1553.8ms)
+  [CAUTION] Slow import - may cause delays in launcher
+Testing import: volumetric_integration_test
+  [SUCCESS] Import successful (0.7ms)
+
+4. Analyzing test file contents:
+
+Analyzing parallel_volumetric_test.py:
+  [ISSUES FOUND]:
+    - Small voxel resolution found: 2.5m (may cause memory issues)
+    - Small voxel resolution found: 2.0m (may cause memory issues)
+    - Small voxel resolution found: 1.8m (may cause memory issues)
+    - Small voxel resolution found: 2.5m (may cause memory issues)
+    - Large drone count found: 35 (may slow processing)
+    - Large drone count found: 25 (may slow processing)
+    - Long simulation duration found: 12.0s
+
+Analyzing volumetric_integration_test.py:
+  [ISSUES FOUND]:
+    - Small voxel resolution found: 2.5m (may cause memory issues)
+    - Small voxel resolution found: 2.0m (may cause memory issues)
+    - Small voxel resolution found: 1.5m (may cause memory issues)
+    - Small voxel resolution found: 2.0m (may cause memory issues)
+    - Large drone count found: 25 (may slow processing)
+    - Large drone count found: 40 (may slow processing)
+    - Large drone count found: 35 (may slow processing)
+    - Long simulation duration found: 15.0s
+    - Long simulation duration found: 20.0s
+    - Long simulation duration found: 15.0s
+
+
+Memory analysis:
+  Resolution 5.0m: 3,600,000 voxels, ~82.4MB [OK]
+  Resolution 3.0m: 16,666,666 voxels, ~381.5MB [HIGH]
+  Resolution 2.0m: 56,250,000 voxels, ~1287.5MB [DANGER]
+  Resolution 1.0m: 450,000,000 voxels, ~10299.7MB [DANGER]
+
+6. Recommendations based on analysis:
+  - parallel_volumetric_test.py takes 1.5+ seconds to import (heavy initialization)
+  - This explains why launch_volumetric_test.py appears to hang
+  - Try using --sequential mode first for faster startup
+  - Check if test files use voxel_resolution < 5m (causes memory issues)
+  - Consider using the minimal_launcher.py instead for reliable testing
