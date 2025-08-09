@@ -50,7 +50,7 @@ def main():
         print(f"Estimated memory: {memory_mb:.1f}MB")
         
         if total_voxels > 2000000:
-            print("⚠️ Warning: High voxel count may cause performance issues")
+            print("Warning: High voxel count may cause performance issues")
             response = input("Continue? (y/N): ")
             if response.lower() != 'y':
                 return
