@@ -15,34 +15,34 @@ This project develops a comprehensive simulation framework that combines:
 The system generates comprehensive visualizations of both sensor coverage and drone trajectory patterns:
 
 ### Sensor Array Coverage
-![Sensor Coverage](sensor_coverage.png)
 
 The sensor array visualization shows the 8-camera perimeter configuration with overlapping fields of view, providing comprehensive coverage of the surveillance area.
+<img width="2088" height="934" alt="sensor_coverage" src="https://github.com/user-attachments/assets/b0f8dd3d-bc42-4c91-93a2-330867af5e59" />
 
 ### Drone Flight Patterns
 
 #### Evasive Maneuvers Pattern (15 drones)
-![Evasive Maneuvers](trajectory_evasive_15drones_small.png)
+<img width="1222" height="1275" alt="trajectory_evasive_15drones_small" src="https://github.com/user-attachments/assets/9e311993-1c53-483a-ae96-4f27a9adb863" />
 
 Shows drones executing evasive maneuvers with rapid direction changes and altitude variations.
 
 #### Formation Flying Pattern (20 drones)
-![Formation Flying](trajectory_formation_20drones_small.png)
+<img width="1222" height="1275" alt="trajectory_formation_20drones_small" src="https://github.com/user-attachments/assets/efbe57f9-ddf7-4874-bf37-378395e45d1e" />
 
 Demonstrates coordinated formation flying with tight grouping and synchronized movement patterns.
 
 #### Perimeter Sweep Pattern (12 drones)
-![Perimeter Sweep](trajectory_perimeter_12drones_small.png)
+<img width="1222" height="1275" alt="trajectory_perimeter_12drones_small" src="https://github.com/user-attachments/assets/da55f683-5dc4-4f09-8359-cb9f35f72a86" />
 
 Illustrates systematic perimeter sweeping with drones maintaining altitude separation and coordinated coverage.
 
 #### Random Dispersal Pattern (8 drones)
-![Random Dispersal - 8 drones](trajectory_random_8drones_small.png)
+<img width="1222" height="1275" alt="trajectory_random_8drones_small" src="https://github.com/user-attachments/assets/70e368a9-91c3-4b35-973a-e0f26f187cbc" />
 
 Small-scale random dispersal showing individual drone trajectories with color legend for easy tracking.
 
 #### Random Dispersal Pattern (25 drones)
-![Random Dispersal - 25 drones](trajectory_swarm_25drones_small.png)
+<img width="1222" height="1275" alt="trajectory_swarm_25drones_small" src="https://github.com/user-attachments/assets/4e189aac-5c09-4d71-817e-37cdfeb0687d" />
 
 Large-scale swarm simulation demonstrating complex multi-drone interactions without cluttered legends.
 
