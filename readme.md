@@ -10,6 +10,42 @@ This project develops a comprehensive simulation framework that combines:
 - Volumetric motion detection using probabilistic occupancy grids
 - Real-time 3D target detection and tracking algorithms
 
+## Visualization Examples
+
+The system generates comprehensive visualizations of both sensor coverage and drone trajectory patterns:
+
+### Sensor Array Coverage
+![Sensor Coverage](sensor_coverage.png)
+
+The sensor array visualization shows the 8-camera perimeter configuration with overlapping fields of view, providing comprehensive coverage of the surveillance area.
+
+### Drone Flight Patterns
+
+#### Evasive Maneuvers Pattern (15 drones)
+![Evasive Maneuvers](trajectory_evasive_15drones_small.png)
+
+Shows drones executing evasive maneuvers with rapid direction changes and altitude variations.
+
+#### Formation Flying Pattern (20 drones)
+![Formation Flying](trajectory_formation_20drones_small.png)
+
+Demonstrates coordinated formation flying with tight grouping and synchronized movement patterns.
+
+#### Perimeter Sweep Pattern (12 drones)
+![Perimeter Sweep](trajectory_perimeter_12drones_small.png)
+
+Illustrates systematic perimeter sweeping with drones maintaining altitude separation and coordinated coverage.
+
+#### Random Dispersal Pattern (8 drones)
+![Random Dispersal - 8 drones](trajectory_random_8drones_small.png)
+
+Small-scale random dispersal showing individual drone trajectories with color legend for easy tracking.
+
+#### Random Dispersal Pattern (25 drones)
+![Random Dispersal - 25 drones](trajectory_swarm_25drones_small.png)
+
+Large-scale swarm simulation demonstrating complex multi-drone interactions without cluttered legends.
+
 ## Current Status
 
 - **Completed**: Drone trajectory generator (150 drones/second performance)
@@ -18,15 +54,23 @@ This project develops a comprehensive simulation framework that combines:
 - **Completed**: Integration testing framework with research validation
 - **Completed**: Parallel processing optimization (10-12x speedup)
 - **Completed**: Comprehensive algorithm comparison and benchmarking
+- **Completed**: Enhanced visualization system with multiple flight patterns
 - **Recently Fixed**: Space carving algorithm now functional with 456x performance improvement
 
 ## Features
 
 ### Drone Trajectory Generation
-- Multiple flight patterns (coordinated attack, formation flying, evasive maneuvers)
+- Multiple flight patterns (coordinated attack, formation flying, evasive maneuvers, perimeter sweep, random dispersal)
 - Realistic physics constraints (velocity, acceleration limits)
 - Environmental effects (wind, sensor noise)
 - Scalable from 5-50+ drones per scenario
+
+### Enhanced Visualization System
+- Customizable drone count (1-50 drones)
+- Multiple flight patterns with distinct behaviors
+- 3D trajectory visualization with automatic legend management
+- Clean, professional visualizations suitable for research presentation
+- Organized image output to dedicated `images/` folder
 
 ### Virtual Sensor Array Simulation
 - Multi-camera configurations (perimeter, triangulation arrays)
@@ -89,27 +133,42 @@ python quick_validation_test_optimized.py
 python quick_validation_test_optimized.py
 ```
 
+#### Enhanced Visualization Testing
+```bash
+# Generate visualizations with custom parameters
+python test_visualization.py --drones 15 --pattern evasive --type small
+
+# Generate large swarm visualization
+python test_visualization.py --drones 25 --pattern swarm --type small
+
+# Generate formation flying demonstration
+python test_visualization.py --drones 20 --pattern formation --type small
+
+# Generate perimeter sweep pattern
+python test_visualization.py --drones 12 --pattern perimeter --type small
+
+# List available flight patterns
+python test_visualization.py --list-patterns
+```
+
 #### Comprehensive Validation
 ```bash
-# Run parallel research validation framework (fast)
-python launch_volumetric_test.py --parallel
+# Run safe integration test with reasonable parameters
+python safe_integration_test.py
 
-# Run sequential validation framework (slower)
-python launch_volumetric_test.py --sequential
+# Run minimal launcher with custom settings
+python minimal_launcher.py --resolution 10.0 --drones 8 --duration 5.0
 ```
 
 ### Legacy Component Tests
 
-#### Trajectory Generation Tests
+#### Debug and Diagnostic Tests
 ```bash
-# Test all trajectory generation functionality
-python test_trajectory_generator.py > test_results.txt 2>&1
-```
+# Quick diagnostic test
+python debug_test.py
 
-#### Visualization and Sensor Tests
-```bash
-# Test visualization fixes and sensor simulation
-python test_visualization_fix.py > visualization_results.txt 2>&1
+# Basic functionality validation
+python quick_validation_test_optimized.py
 ```
 
 ### Performance Benchmarking
@@ -156,28 +215,12 @@ Testing hybrid:
 
 #### Coordinated Swarm Attack Simulation
 ```bash
-python -c "
-from src.drone_trajectory_generator import *
-bounds = SimulationBounds()
-gen = DroneSwarmGenerator(bounds)
-data = gen.generate_swarm_trajectories(15, FlightPattern.COORDINATED_ATTACK, 45.0)
-fig = visualize_trajectories(data)
-fig.savefig('coordinated_attack_demo.png', dpi=150, bbox_inches='tight', pad_inches=0.2)
-print('Demo visualization saved as coordinated_attack_demo.png')
-"
+python test_visualization.py --drones 15 --pattern coordinated --duration 10.0
 ```
 
 #### Multi-Sensor Detection Analysis
 ```bash
-python -c "
-from src.sensor_simulation import *
-from src.drone_trajectory_generator import *
-bounds = SimulationBounds()
-sensors = create_standard_sensor_array(bounds, 'triangulation')
-fig = sensors.visualize_sensor_coverage()
-fig.savefig('sensor_coverage_demo.png', dpi=150, bbox_inches='tight')
-print('Sensor coverage saved as sensor_coverage_demo.png')
-"
+python test_visualization.py  # Generates sensor coverage visualization automatically
 ```
 
 ## Project Structure
@@ -189,27 +232,41 @@ volumetric-drone-detection/
 ├── .gitignore                        # Git ignore rules
 ├── file_tree.txt                     # Current directory structure
 ├── Get-FileTree.ps1                  # PowerShell script for directory listing
+├── images/                           # Generated visualization outputs
+│   ├── sensor_coverage.png           # Sensor array coverage
+│   ├── trajectory_evasive_15drones_small.png
+│   ├── trajectory_formation_20drones_small.png
+│   ├── trajectory_perimeter_12drones_small.png
+│   ├── trajectory_random_8drones_small.png
+│   └── trajectory_swarm_25drones_small.png
 ├── src/                              # Source code
 │   ├── __init__.py                   # Package initialization
 │   ├── drone_trajectory_generator.py # Drone movement simulation
 │   ├── sensor_simulation.py          # Virtual sensor arrays
 │   ├── volumetric_detection.py       # 3D detection pipeline (optimized)
 │   └── __pycache__/                  # Python cache files
-├── launch_volumetric_test.py         # Main test launcher (parallel/sequential)
-├── parallel_volumetric_test.py       # Parallel processing framework
-├── quick_validation_test_optimized.py # Optimized functionality test (recommended)
-├── quick_validation_test.py          # Legacy functionality test
-├── volumetric_integration_test.py    # Research validation framework
-├── test_trajectory_generator.py      # Legacy trajectory tests
-├── test_visualization_fix.py         # Legacy visualization tests
-├── debug_space_carving.py            # Debug utilities for space carving
-├── debug_test.py                     # General debug utilities
-├── validation_results_parallel.txt   # Parallel test output log
-├── quick_validation_test_optimized.txt # Quick test output log
+├── test_visualization.py             # Enhanced visualization testing (recommended)
+├── debug_test.py                     # Quick diagnostic test
+├── quick_validation_test_optimized.py # Optimized functionality test
+├── safe_integration_test.py          # Safe comprehensive testing
+├── minimal_launcher.py               # Configurable test launcher
+├── minimal_test_results.json         # Test results data
+├── safe_integration_results.json     # Integration test results
 └── __pycache__/                      # Python cache files
 ```
 
 ## Configuration Options
+
+### Visualization Options
+```bash
+# Available flight patterns
+python test_visualization.py --list-patterns
+
+# Pattern options: coordinated, evasive, formation, perimeter, random
+# Drone count: 1-50 drones
+# Duration: 1.0-60.0 seconds
+# Drone types: small, medium, large (note: 'large' may default to 'small')
+```
 
 ### Simulation Bounds
 ```python
@@ -221,9 +278,9 @@ bounds = SimulationBounds(
 ```
 
 ### Drone Types
-- **`'micro'`**: 0.3m wingspan, 15 m/s max speed
-- **`'small'`**: 0.8m wingspan, 25 m/s max speed  
+- **`'small'`**: 0.8m wingspan, 25 m/s max speed (recommended)
 - **`'medium'`**: 1.5m wingspan, 35 m/s max speed
+- **`'large'`**: May fallback to 'small' for compatibility
 
 ### Flight Patterns
 - **`COORDINATED_ATTACK`**: Converging from perimeter
@@ -238,48 +295,27 @@ bounds = SimulationBounds(
 - **`"mixed"`**: Combined visible and thermal sensors
 
 ### Detection Methods
-- **`OCCUPANCY_GRID`**: Bayesian probabilistic approach
-- **`SPACE_CARVING`**: Optimized 3D reconstruction (ultra-fast)
 - **`TRIANGULATION`**: Multi-view geometry positioning (comprehensive)
+- **`SPACE_CARVING`**: Optimized 3D reconstruction (ultra-fast, precise)
 - **`HYBRID`**: Combined approach for optimal performance
-
-### Parallel Processing Options
-```bash
-# Use optimized quick test (recommended for development)
-python quick_validation_test_optimized.py
-
-# Use parallel processing for comprehensive validation
-python launch_volumetric_test.py --parallel
-
-# Use sequential processing (slower but deterministic)
-python launch_volumetric_test.py --sequential
-```
 
 ## Expected Output Files
 
 After running tests, you'll generate:
+
+### Enhanced Visualization Outputs
+- `images/sensor_coverage.png` - Sensor array coverage visualization
+- `images/trajectory_[pattern]_[N]drones_[type].png` - Drone trajectory visualizations
+- Custom trajectory files based on your parameters
 
 ### Quick Validation (Recommended)
 - Console output showing all three detection methods working
 - Real-time performance metrics for each algorithm
 
 ### Research Validation
-- `volumetric_detection_validation.json` - Complete research metrics
-- `validation_results_parallel.txt` - Parallel processing console output
-- `validation_results_sequential.txt` - Sequential processing console output
-
-### Trajectory Visualizations
-- `test_trajectory_visualization.png` - Main test output
-- `trajectory_visualization_fixed.png` - Fixed axis labels
-- `coordinated_attack_demo.png` - Example scenario
-
-### Sensor Analysis
-- `sensor_coverage_fixed.png` - Sensor array coverage maps
-- `sensor_coverage_demo.png` - Example detection analysis
-
-### Legacy Test Reports
-- `test_results.txt` - Comprehensive trajectory test results
-- `visualization_results.txt` - Visualization validation
+- `safe_integration_results.json` - Safe research metrics
+- `minimal_test_results.json` - Minimal test results
+- Various console output logs
 
 ## Performance Optimization
 
@@ -303,12 +339,11 @@ detection_pipeline = VolumetricDetectionPipeline(
 )
 ```
 
-### Parallel Processing Optimization:
-- **Use optimized quick test** for rapid algorithm development
-- **Use parallel mode** for comprehensive testing
-- **Use sequential mode** for deterministic research results
-- **CPU cores**: Automatically uses available cores minus 1
-- **Memory efficiency**: Shared data structures reduce overhead
+### Visualization Best Practices:
+- **Use 8 or fewer drones** for color legend display
+- **Use 12+ drones** for pattern analysis without legend clutter
+- **Save images to `images/` folder** for organized output
+- **Use descriptive filenames** with pattern and drone count
 
 ## Benchmarking Results
 
@@ -320,9 +355,8 @@ detection_pipeline = VolumetricDetectionPipeline(
 
 ### Validation Time Comparison:
 - **Quick Test**: < 1 second for all three methods
-- **Sequential Processing**: 35-45 minutes
-- **Parallel Processing**: 3.6 minutes
-- **Speedup Factor**: 10-12x improvement
+- **Safe Integration**: 2-5 seconds for multiple configurations
+- **Minimal Tests**: < 1 second for custom scenarios
 
 ### Detection Performance by Method:
 - **Triangulation**: Best coverage (comprehensive detection)
@@ -347,47 +381,42 @@ python quick_validation_test_optimized.py
 #### Detection Pipeline Issues
 ```bash
 # Test individual components
-python -c "from src.volumetric_detection import VolumetricDetectionPipeline; print('Pipeline import successful')"
+python debug_test.py
 ```
 
-#### Space Carving Not Detecting Targets
-This issue has been resolved. If you encounter problems:
-1. Ensure you're using the latest `volumetric_detection.py`
-2. Run the optimized quick test to verify functionality
-3. Check that sensor observations contain detected objects
-
-#### Parallel Processing Issues
+#### Visualization Issues
 ```bash
-# Test with sequential mode if parallel fails
-python launch_volumetric_test.py --sequential
+# Test visualization system
+python test_visualization.py --drones 5 --pattern coordinated
 ```
 
-#### Visualization Problems
+#### Pattern Not Found Errors
 ```bash
-# Test matplotlib backend
-python -c "import matplotlib; print(matplotlib.get_backend())"
+# List available patterns
+python test_visualization.py --list-patterns
+
+# Use available patterns: coordinated, evasive, formation, perimeter, random
 ```
 
 #### Memory Issues for Volumetric Processing
-- Increase `voxel_resolution` (2.0-4.0 meters)
+- Use `safe_integration_test.py` for memory-safe testing
+- Increase `voxel_resolution` (5.0-10.0 meters)
 - Reduce `num_drones` parameter
 - Use shorter simulation durations
-- Use parallel processing for better memory management
 
 #### Performance Issues
-- Use optimized quick test for development
-- Use parallel processing mode for validation
+- Use `quick_validation_test_optimized.py` for development
+- Use `minimal_launcher.py` for custom scenarios
 - Close other applications
-- Reduce voxel grid resolution
-- Use simplified detection methods
+- Use appropriate voxel grid resolution
 
 ### Getting Help
 
-1. **Run optimized quick validation test** for immediate feedback
-2. **Check console output** in validation logs
+1. **Run quick validation test** for immediate feedback
+2. **Check visualization outputs** in `images/` folder
 3. **Verify system requirements** (Python 3.11+, sufficient RAM)
-4. **Review configuration parameters** for your hardware
-5. **Try parallel processing** for better performance
+4. **Use safe integration test** for comprehensive validation
+5. **Try different flight patterns** for various scenarios
 
 ## Development
 
@@ -396,22 +425,20 @@ python -c "import matplotlib; print(matplotlib.get_backend())"
 # Quick development testing (recommended)
 python quick_validation_test_optimized.py
 
-# Fast parallel validation
-python launch_volumetric_test.py --parallel
+# Safe comprehensive testing
+python safe_integration_test.py
 
-# Traditional sequential validation
-python launch_volumetric_test.py --sequential
+# Custom scenario testing
+python minimal_launcher.py --resolution 10.0 --drones 8
 
-# Check results
-cat validation_results_parallel.txt
-cat volumetric_detection_validation.json
+# Visualization testing
+python test_visualization.py --drones 15 --pattern formation
 ```
 
-### Adding New Detection Algorithms
-1. Add new method to `DetectionMethod` enum
-2. Implement processing logic in `VolumetricDetectionPipeline`
-3. Add test case in `volumetric_integration_test.py`
-4. Add parallel worker function in `parallel_volumetric_test.py`
+### Adding New Flight Patterns
+1. Add new pattern to `FlightPattern` enum in `drone_trajectory_generator.py`
+2. Update pattern mapping in `test_visualization.py`
+3. Test with `python test_visualization.py --pattern new_pattern`
 
 ### Performance Profiling
 ```python
@@ -426,11 +453,14 @@ print(f"Detection time: {time.time() - start_time:.3f} seconds")
 # Quick iteration during development
 python quick_validation_test_optimized.py
 
-# Algorithm comparison during optimization
-python launch_volumetric_test.py --parallel
+# Visualization testing during development
+python test_visualization.py --drones 8 --pattern random
 
-# Final validation for research
-python launch_volumetric_test.py --sequential
+# Algorithm testing
+python debug_test.py
+
+# Safe comprehensive validation
+python safe_integration_test.py
 ```
 
 ## Research Applications
@@ -441,7 +471,8 @@ This framework is designed for academic research in:
 - Real-time 3D detection methods
 - Swarm behavior analysis
 - Sensor fusion techniques
-- Parallel processing for simulation frameworks
+- Drone flight pattern analysis
+- Visualization of complex multi-agent systems
 
 ## Research Findings
 
@@ -453,16 +484,23 @@ This framework is designed for academic research in:
 
 ### Computational Performance:
 - **Space carving optimization** achieved 456x performance improvement
-- **Parallel processing** achieves 10-12x speedup
+- **Safe parameter selection** enables reliable testing
 - **Desktop hardware** capable of real-time processing
-- **Memory usage** optimized for large-scale scenarios
+- **Memory usage** optimized for practical scenarios
 - **All methods** now suitable for real-time applications
+
+### Visualization Insights:
+- **Pattern differentiation** clearly visible in 3D trajectories
+- **Scalable legend management** for different swarm sizes
+- **Professional quality** visualizations suitable for research publication
+- **Comprehensive sensor coverage** visualization for array validation
 
 ### Recent Breakthroughs:
 - **Fixed space carving algorithm**: Now detects targets reliably
 - **Simplified clustering approach**: Direct detection-based clustering
 - **Performance optimization**: Sub-millisecond space carving processing
-- **Enhanced hybrid method**: Proper fusion of all detection methods
+- **Enhanced visualization system**: Multiple flight patterns with clean output
+- **Safe testing framework**: Reliable parameter selection and validation
 
 ## License
 
@@ -475,5 +513,5 @@ This is an academic research project. For questions or collaboration inquiries, 
 ---
 
 **System Requirements**: Python 3.11+, 8GB+ RAM, Multi-core CPU, Windows/macOS/Linux  
-**Performance**: All detection methods optimized for real-time processing with parallel framework  
-**Status**: Fully functional volumetric detection pipeline with 456x space carving improvement
+**Performance**: All detection methods optimized for real-time processing with safe testing framework  
+**Status**: Fully functional volumetric detection pipeline with enhanced visualization capabilities
