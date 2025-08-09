@@ -65,7 +65,7 @@ This project develops a comprehensive simulation framework that combines:
 
 1. **Clone the repository:**
 ```bash
-git clone https://github.com/yourusername/volumetric-drone-detection.git
+git clone https://github.com/mr-fool/volumetric-drone-detection
 cd volumetric-drone-detection
 ```
 
