@@ -1,5 +1,6 @@
 """
 Volumetric Motion Detection Pipeline for Multi-Drone Swarm Engagement
+Academic implementation for JDMS paper submission
 
 Implements:
 - Probabilistic occupancy grids with Bayesian updates
@@ -317,33 +318,68 @@ class VolumetricDetectionPipeline:
         # Start with triangulation targets (high confidence)
         fused_targets = triangulation_targets.copy()
         
-        # Add targets from occupancy grid that don't overlap with triangulation
+        # Extract targets from space carving
+        carving_targets = self._extract_targets_from_carved_space(carved_volume, timestamp)
+        
+        # Add targets from occupancy grid that don't overlap with existing
         occupancy_targets = self._extract_targets_from_occupancy_grid(timestamp)
         
-        for occ_target in occupancy_targets:
+        # Combine carving and occupancy targets
+        additional_targets = carving_targets + occupancy_targets
+        
+        for add_target in additional_targets:
             # Check if this target overlaps with existing triangulation targets
             is_duplicate = False
             for tri_target in triangulation_targets:
-                distance = np.linalg.norm(occ_target.position - tri_target.position)
-                if distance < 10.0:  # 10m overlap threshold
+                distance = np.linalg.norm(add_target.position - tri_target.position)
+                if distance < 15.0:  # 15m overlap threshold
+                    # Boost confidence of triangulation target if supported by other methods
+                    if add_target.detection_method == DetectionMethod.SPACE_CARVING:
+                        tri_target.confidence = min(0.95, tri_target.confidence * 1.3)
                     is_duplicate = True
                     break
             
             if not is_duplicate:
-                # Adjust confidence based on carved volume support
-                voxel_coord = self._world_to_voxel_coordinates(occ_target.position.reshape(1, -1))[0]
-                if (0 <= voxel_coord[0] < carved_volume.shape[0] and
-                    0 <= voxel_coord[1] < carved_volume.shape[1] and
-                    0 <= voxel_coord[2] < carved_volume.shape[2]):
-                    
-                    if carved_volume[voxel_coord[0], voxel_coord[1], voxel_coord[2]]:
-                        occ_target.confidence *= 1.2  # Boost confidence if supported by carving
-                    else:
-                        occ_target.confidence *= 0.8  # Reduce confidence if not supported
+                # Check if carved volume supports this detection
+                if self._check_carving_support(add_target.position, carved_volume):
+                    add_target.confidence *= 1.2  # Boost confidence if supported by carving
                 
-                fused_targets.append(occ_target)
+                # Only add if confidence is reasonable
+                if add_target.confidence > 0.1:
+                    fused_targets.append(add_target)
         
         return fused_targets
+    
+    def _check_carving_support(self, position: np.ndarray, carved_volume: np.ndarray) -> bool:
+        """Check if a position is supported by carved volume"""
+        
+        voxel_coord = self._world_to_voxel_coordinates(position.reshape(1, -1))[0]
+        
+        # Check bounds
+        if not (0 <= voxel_coord[0] < carved_volume.shape[0] and
+                0 <= voxel_coord[1] < carved_volume.shape[1] and
+                0 <= voxel_coord[2] < carved_volume.shape[2]):
+            return False
+        
+        # Check if carved volume supports this position (including neighborhood)
+        support_count = 0
+        total_checked = 0
+        
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                for dz in range(-1, 2):
+                    x, y, z = voxel_coord[0] + dx, voxel_coord[1] + dy, voxel_coord[2] + dz
+                    
+                    if (0 <= x < carved_volume.shape[0] and
+                        0 <= y < carved_volume.shape[1] and
+                        0 <= z < carved_volume.shape[2]):
+                        
+                        if carved_volume[x, y, z]:
+                            support_count += 1
+                        total_checked += 1
+        
+        # Require at least 30% support in neighborhood
+        return (support_count / max(1, total_checked)) > 0.3
     
     def _extract_targets_from_carved_space(self, carved_volume: np.ndarray, 
                                           timestamp: float) -> List[DetectedTarget]:
@@ -398,14 +434,18 @@ class VolumetricDetectionPipeline:
             return []
         
         targets = []
-        clustering_distance = self.voxel_resolution * 3  # Cluster within 3 voxels
+        clustering_distance = self.voxel_resolution * 4  # Increased from 3 to 4 voxels
         
         # Use hierarchical clustering for target separation
         from scipy.cluster.hierarchy import fcluster, linkage
         
         if len(positions) > 1:
-            linkage_matrix = linkage(positions, method='ward')
-            cluster_labels = fcluster(linkage_matrix, clustering_distance, criterion='distance')
+            try:
+                linkage_matrix = linkage(positions, method='ward')
+                cluster_labels = fcluster(linkage_matrix, clustering_distance, criterion='distance')
+            except:
+                # Fallback if clustering fails
+                cluster_labels = [1] * len(positions)
         else:
             cluster_labels = [1]
         
@@ -414,33 +454,37 @@ class VolumetricDetectionPipeline:
             cluster_mask = cluster_labels == cluster_id
             cluster_positions = positions[cluster_mask]
             
+            # Skip very small clusters (likely noise)
+            if len(cluster_positions) < 3:
+                continue
+            
             # Calculate cluster centroid and properties
             centroid = np.mean(cluster_positions, axis=0)
             
             # Estimate volume and confidence
             volume_estimate = len(cluster_positions) * (self.voxel_resolution ** 3)
             
-            # Get voxel indices for this cluster
-            voxel_coords = self._world_to_voxel_coordinates(cluster_positions)
-            confidences = self.grid.confidence_scores[voxel_coords[:, 0], 
-                                                    voxel_coords[:, 1], 
-                                                    voxel_coords[:, 2]]
-            avg_confidence = np.mean(confidences)
+            # Calculate confidence based on cluster size and density
+            cluster_radius = np.max(np.linalg.norm(cluster_positions - centroid, axis=1))
+            density = len(cluster_positions) / max(1.0, cluster_radius ** 3)
+            confidence = min(0.8, 0.1 + density * 0.1)  # Base confidence from cluster properties
             
             # Estimate velocity from recent position changes
             velocity = self._estimate_velocity_from_history(centroid, timestamp)
             
-            # Create covariance matrix (simplified)
+            # Create covariance matrix based on cluster spread
             position_std = np.std(cluster_positions, axis=0)
+            # Ensure minimum uncertainty
+            position_std = np.maximum(position_std, self.voxel_resolution)
             covariance = np.diag(position_std ** 2)
             
             target = DetectedTarget(
                 position=centroid,
                 velocity=velocity,
-                confidence=avg_confidence,
+                confidence=confidence,
                 volume_estimate=volume_estimate,
                 contributing_sensors=[],  # Will be filled by tracking
-                detection_method=DetectionMethod.OCCUPANCY_GRID,
+                detection_method=DetectionMethod.SPACE_CARVING,
                 covariance_matrix=covariance,
                 timestamp=timestamp
             )
@@ -773,68 +817,307 @@ class SpaceCarvingAlgorithm:
     def __init__(self, grid: VoxelGrid):
         self.grid = grid
         self.carved_volume = np.ones(grid.dimensions, dtype=bool)
-    
+        self.consistency_threshold = 0.6
+        
     def carve_space(self, observations: List, timestamp: float) -> np.ndarray:
         """Perform space carving based on visual hull intersection"""
         
-        # Reset carved volume
-        current_carving = np.ones(self.grid.dimensions, dtype=bool)
+        # Reset carved volume for each frame
+        current_carving = np.zeros(self.grid.dimensions, dtype=bool)
         
-        # Carve based on each sensor's field of view
+        # Collect and deduplicate detected object positions from sensors
+        detected_positions = []
+        sensor_positions = []
+        
         for obs in observations:
             if len(obs.detected_objects) > 0:
-                sensor_carving = self._carve_from_sensor(obs)
-                current_carving &= sensor_carving
+                # Get sensor position (estimated from camera ID)
+                sensor_pos = self._estimate_sensor_position(obs.camera_id)
+                sensor_positions.append(sensor_pos)
+                
+                # Collect detected object positions
+                for obj in obs.detected_objects:
+                    detected_positions.append(obj['world_position'])
         
-        # Update persistent carved volume
-        self.carved_volume = current_carving
+        # Deduplicate detection positions (same drone detected by multiple sensors)
+        unique_detections = self._deduplicate_detections(detected_positions)
+        
+        if len(unique_detections) == 0:
+            return np.zeros(self.grid.dimensions, dtype=bool)
+        
+        print(f"DEBUG: Space carving {len(unique_detections)} unique detections (from {len(detected_positions)} total)")
+        
+        # Use simple fallback method instead of complex visual hull
+        current_carving = self._mark_detected_regions(unique_detections)
+        
+        carved_count = np.sum(current_carving)
+        total_voxels = np.prod(current_carving.shape)
+        print(f"DEBUG: Marked {carved_count} voxels ({carved_count/total_voxels*100:.3f}%)")
+        
+        # Update persistent carved volume with temporal consistency
+        self._update_temporal_carving(current_carving, timestamp)
         
         return self.carved_volume
     
-    def _carve_from_sensor(self, observation) -> np.ndarray:
-        """Carve space based on single sensor observation"""
+    def _deduplicate_detections(self, detected_positions: List) -> List:
+        """Remove duplicate detection positions (same drone detected by multiple sensors)"""
         
-        sensor_carving = np.zeros(self.grid.dimensions, dtype=bool)
+        if not detected_positions:
+            return []
         
-        # For each detected object, mark voxels that could contain the object
-        for obj in observation.detected_objects:
-            target_pos = obj['world_position']
+        unique_detections = []
+        detection_threshold = 5.0  # 5m - detections closer than this are considered duplicates
+        
+        for det_pos in detected_positions:
+            det_pos = np.array(det_pos)
             
-            # Convert to voxel coordinates
-            voxel_coord = self._world_to_voxel_coord(target_pos)
+            # Check if this detection is close to any existing unique detection
+            is_duplicate = False
+            for unique_pos in unique_detections:
+                distance = np.linalg.norm(det_pos - np.array(unique_pos))
+                if distance < detection_threshold:
+                    is_duplicate = True
+                    break
             
-            if self._is_valid_voxel(voxel_coord):
-                # Mark neighborhood around detection as potentially occupied
-                self._mark_detection_neighborhood(sensor_carving, voxel_coord)
+            if not is_duplicate:
+                unique_detections.append(det_pos)
         
-        return sensor_carving
+        return unique_detections
     
-    def _mark_detection_neighborhood(self, carving_volume: np.ndarray, 
-                                   center_voxel: Tuple[int, int, int]):
-        """Mark voxel neighborhood as potentially occupied"""
+    def _carve_visual_hull(self, detected_positions: List, sensor_positions: List, 
+                          timestamp: float) -> np.ndarray:
+        """Carve 3D space using visual hull intersection"""
         
-        x, y, z = center_voxel
-        radius = 2  # Voxel radius for neighborhood
+        carved_volume = np.zeros(self.grid.dimensions, dtype=bool)
         
-        for dx in range(-radius, radius + 1):
-            for dy in range(-radius, radius + 1):
-                for dz in range(-radius, radius + 1):
-                    nx, ny, nz = x + dx, y + dy, z + dz
-                    if self._is_valid_voxel((nx, ny, nz)):
-                        carving_volume[nx, ny, nz] = True
+        # For each detected position, create a cone of possible locations
+        for det_pos in detected_positions:
+            # Find sensors that could have detected this object
+            contributing_sensors = []
+            
+            for sensor_pos in sensor_positions:
+                distance = np.linalg.norm(np.array(det_pos) - np.array(sensor_pos))
+                if distance < 2000.0:  # Within sensor range
+                    contributing_sensors.append(sensor_pos)
+            
+            if len(contributing_sensors) >= 2:
+                # Create intersection volume for this detection
+                detection_volume = self._create_detection_volume(
+                    det_pos, contributing_sensors
+                )
+                carved_volume |= detection_volume
+        
+        return carved_volume
     
-    def _world_to_voxel_coord(self, world_pos: np.ndarray) -> Tuple[int, int, int]:
-        """Convert world position to voxel coordinates"""
-        relative_pos = world_pos - self.grid.origin
-        voxel_pos = (relative_pos / self.grid.resolution).astype(int)
-        return tuple(voxel_pos)
+    def _carve_visual_hull(self, detected_positions: List, sensor_positions: List, 
+                          timestamp: float) -> np.ndarray:
+        """Carve 3D space using visual hull intersection"""
+        
+        carved_volume = np.zeros(self.grid.dimensions, dtype=bool)
+        
+        # For each detected position, create a conservative detection volume
+        for det_pos in detected_positions:
+            # Find sensors that could have detected this object
+            contributing_sensors = []
+            
+            for sensor_pos in sensor_positions:
+                distance = np.linalg.norm(np.array(det_pos) - np.array(sensor_pos))
+                if 50.0 <= distance <= 2000.0:  # Within sensor range
+                    contributing_sensors.append(sensor_pos)
+            
+            if len(contributing_sensors) >= 2:
+                # Create conservative detection volume for this detection
+                detection_volume = self._create_conservative_detection_volume(
+                    det_pos, contributing_sensors
+                )
+                carved_volume |= detection_volume
+        
+        return carved_volume
     
-    def _is_valid_voxel(self, voxel_coord: Tuple[int, int, int]) -> bool:
-        """Check if voxel coordinates are within grid bounds"""
-        x, y, z = voxel_coord
-        return (0 <= x < self.grid.dimensions[0] and
-                0 <= y < self.grid.dimensions[1] and
-                0 <= z < self.grid.dimensions[2])
+    def _create_conservative_detection_volume(self, target_pos: np.ndarray, 
+                                            sensor_positions: List) -> np.ndarray:
+        """Create a conservative 3D volume for a single detection"""
+        
+        detection_volume = np.zeros(self.grid.dimensions, dtype=bool)
+        target_pos = np.array(target_pos)
+        
+        # Much smaller uncertainty radius to prevent over-carving
+        uncertainty_radius = 8.0  # Reduced from 15.0 meters
+        
+        # Convert target position to voxel coordinates
+        target_voxel = ((target_pos - self.grid.origin) / self.grid.resolution).astype(int)
+        
+        # Check bounds
+        if not (0 <= target_voxel[0] < self.grid.dimensions[0] and
+                0 <= target_voxel[1] < self.grid.dimensions[1] and
+                0 <= target_voxel[2] < self.grid.dimensions[2]):
+            return detection_volume
+        
+        # Calculate voxel radius for uncertainty
+        voxel_radius = int(np.ceil(uncertainty_radius / self.grid.resolution))
+        
+        # Only iterate through voxels in the uncertainty region
+        x_start = max(0, target_voxel[0] - voxel_radius)
+        x_end = min(self.grid.dimensions[0], target_voxel[0] + voxel_radius + 1)
+        y_start = max(0, target_voxel[1] - voxel_radius)
+        y_end = min(self.grid.dimensions[1], target_voxel[1] + voxel_radius + 1)
+        z_start = max(0, target_voxel[2] - voxel_radius)
+        z_end = min(self.grid.dimensions[2], target_voxel[2] + voxel_radius + 1)
+        
+        # Iterate only through the local region
+        for i in range(x_start, x_end):
+            for j in range(y_start, y_end):
+                for k in range(z_start, z_end):
+                    # Convert voxel indices to world coordinates
+                    world_pos = self.grid.origin + np.array([i, j, k]) * self.grid.resolution
+                    
+                    # Check if this voxel is within uncertainty region of detection
+                    distance_to_detection = np.linalg.norm(world_pos - target_pos)
+                    
+                    if distance_to_detection <= uncertainty_radius:
+                        # Stricter sensor consistency check
+                        if self._strict_sensor_consistency(world_pos, sensor_positions, target_pos):
+                            detection_volume[i, j, k] = True
+        
+        return detection_volume
+    
+    def _strict_sensor_consistency(self, voxel_pos: np.ndarray, 
+                                  sensor_positions: List, target_pos: np.ndarray) -> bool:
+        """Stricter sensor consistency check to prevent over-carving"""
+        
+        if len(sensor_positions) < 2:
+            return False
+        
+        # Check that the voxel is close to the actual detection
+        distance_to_target = np.linalg.norm(voxel_pos - target_pos)
+        if distance_to_target > 8.0:  # Must be within 8m of actual detection
+            return False
+        
+        # Check visibility from sensors
+        visible_count = 0
+        total_distance = 0
+        
+        for sensor_pos in sensor_positions:
+            sensor_pos = np.array(sensor_pos)
+            distance = np.linalg.norm(voxel_pos - sensor_pos)
+            
+            # Tighter constraints
+            if 100.0 <= distance <= 1500.0:  # Tighter sensor range
+                if voxel_pos[2] >= self.grid.origin[2] + 70:  # Higher minimum altitude
+                    visible_count += 1
+                    total_distance += distance
+        
+        # Require visibility from at least 2 sensors
+        if visible_count >= 2:
+            # Additional constraint: average distance should be reasonable
+            avg_distance = total_distance / visible_count
+            return 200.0 <= avg_distance <= 1200.0
+        
+        return False
+    
+    def _check_sensor_consistency(self, voxel_pos: np.ndarray, 
+                                 sensor_positions: List) -> bool:
+        """Check if voxel position is geometrically consistent with sensors"""
+        
+        if len(sensor_positions) < 2:
+            return True
+        
+        # Check that the voxel is visible from multiple sensors
+        visible_count = 0
+        
+        for sensor_pos in sensor_positions:
+            sensor_pos = np.array(sensor_pos)
+            
+            # Simple line-of-sight check
+            distance = np.linalg.norm(voxel_pos - sensor_pos)
+            
+            # Within sensor range and reasonable viewing angle
+            if 50.0 <= distance <= 2000.0:
+                # Check if above minimum altitude (avoid ground clutter)
+                if voxel_pos[2] >= self.grid.origin[2] + 50:
+                    visible_count += 1
+                    
+                    # Early exit optimization - don't need to check all sensors
+                    if visible_count >= 2:
+                        return True
+        
+        # Require visibility from at least 2 sensors for carving
+        return visible_count >= 2
+    
+    def _mark_detected_regions(self, detected_positions: List) -> np.ndarray:
+        """Fallback method: mark regions around detections"""
+        
+        carved_volume = np.zeros(self.grid.dimensions, dtype=bool)
+        
+        print(f"DEBUG: Marking regions for {len(detected_positions)} detections")
+        
+        for i, det_pos in enumerate(detected_positions):
+            det_pos = np.array(det_pos)
+            
+            # Convert position to voxel coordinates
+            det_voxel = ((det_pos - self.grid.origin) / self.grid.resolution).astype(int)
+            
+            # Check bounds first
+            if not (0 <= det_voxel[0] < self.grid.dimensions[0] and
+                    0 <= det_voxel[1] < self.grid.dimensions[1] and
+                    0 <= det_voxel[2] < self.grid.dimensions[2]):
+                print(f"DEBUG: Detection {i} at {det_pos} -> voxel {det_voxel} is out of bounds")
+                continue
+            
+            # Much smaller radius - only 5m instead of 10m
+            voxel_radius = int(np.ceil(5.0 / self.grid.resolution))  # ~2-3 voxels at 2m resolution
+            print(f"DEBUG: Detection {i} at {det_pos} -> voxel {det_voxel}, radius {voxel_radius}")
+            
+            # Only iterate through local region
+            x_start = max(0, det_voxel[0] - voxel_radius)
+            x_end = min(self.grid.dimensions[0], det_voxel[0] + voxel_radius + 1)
+            y_start = max(0, det_voxel[1] - voxel_radius)
+            y_end = min(self.grid.dimensions[1], det_voxel[1] + voxel_radius + 1)
+            z_start = max(0, det_voxel[2] - voxel_radius)
+            z_end = min(self.grid.dimensions[2], det_voxel[2] + voxel_radius + 1)
+            
+            voxels_marked = 0
+            for x in range(x_start, x_end):
+                for y in range(y_start, y_end):
+                    for z in range(z_start, z_end):
+                        world_pos = self.grid.origin + np.array([x, y, z]) * self.grid.resolution
+                        
+                        distance = np.linalg.norm(world_pos - det_pos)
+                        if distance <= 5.0:  # 5m radius
+                            carved_volume[x, y, z] = True
+                            voxels_marked += 1
+            
+            print(f"DEBUG: Detection {i} marked {voxels_marked} voxels")
+        
+        return carved_volume
+    
+    def _update_temporal_carving(self, current_carving: np.ndarray, timestamp: float):
+        """Update carved volume with temporal consistency"""
+        
+        # Don't accumulate - use only current carving to prevent runaway growth
+        # The temporal aspect should be handled by the detection pipeline itself
+        self.carved_volume = current_carving.copy()
+    
+    def _estimate_sensor_position(self, camera_id: str) -> np.ndarray:
+        """Estimate sensor position from camera ID"""
+        
+        try:
+            cam_num = int(camera_id.split('_')[-1])
+        except (ValueError, IndexError):
+            cam_num = 0
+        
+        # Position cameras in perimeter (consistent with sensor simulation)
+        center_x = (self.grid.origin[0] + self.grid.dimensions[0] * self.grid.resolution) / 2
+        center_y = (self.grid.origin[1] + self.grid.dimensions[1] * self.grid.resolution) / 2
+        radius = min(self.grid.dimensions[0], self.grid.dimensions[1]) * self.grid.resolution * 0.6
+        
+        angle = 2 * np.pi * cam_num / 8  # 8 cameras in perimeter
+        
+        cam_x = center_x + radius * np.cos(angle)
+        cam_y = center_y + radius * np.sin(angle)
+        cam_z = 100.0  # 100m elevation
+        
+        return np.array([cam_x, cam_y, cam_z])
 
 
 class MultiViewTriangulator:
