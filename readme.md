@@ -233,12 +233,6 @@ volumetric-drone-detection/
 ├── file_tree.txt                     # Current directory structure
 ├── Get-FileTree.ps1                  # PowerShell script for directory listing
 ├── images/                           # Generated visualization outputs
-│   ├── sensor_coverage.png           # Sensor array coverage
-│   ├── trajectory_evasive_15drones_small.png
-│   ├── trajectory_formation_20drones_small.png
-│   ├── trajectory_perimeter_12drones_small.png
-│   ├── trajectory_random_8drones_small.png
-│   └── trajectory_swarm_25drones_small.png
 ├── src/                              # Source code
 │   ├── __init__.py                   # Package initialization
 │   ├── drone_trajectory_generator.py # Drone movement simulation
