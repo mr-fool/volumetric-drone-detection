@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-08-09T12:34:39.359177",
+  "timestamp": "2025-08-09T12:41:57.150330",
   "configurations": [
     {
       "name": "minimal",
@@ -16,35 +16,35 @@
           "frames": [
             {
               "frame": 0,
-              "time_ms": 8.308649063110352,
+              "time_ms": 9.498357772827148,
               "targets": 15,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 1,
-              "time_ms": 7.895708084106445,
+              "time_ms": 9.399175643920898,
               "targets": 15,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 2,
-              "time_ms": 8.986949920654297,
+              "time_ms": 9.16290283203125,
               "targets": 15,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 3,
-              "time_ms": 8.877754211425781,
+              "time_ms": 9.376764297485352,
               "targets": 15,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             }
           ],
-          "total_time_ms": 34.069061279296875,
-          "avg_time_ms": 8.517265319824219,
+          "total_time_ms": 37.43720054626465,
+          "avg_time_ms": 9.359300136566162,
           "total_targets": 60,
           "avg_targets": 15.0
         },
@@ -52,35 +52,35 @@
           "frames": [
             {
               "frame": 0,
-              "time_ms": 3.0488967895507812,
+              "time_ms": 3.7453174591064453,
               "targets": 5,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 1,
-              "time_ms": 2.8200149536132812,
+              "time_ms": 3.976583480834961,
               "targets": 5,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 2,
-              "time_ms": 3.170490264892578,
+              "time_ms": 3.3636093139648438,
               "targets": 5,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 3,
-              "time_ms": 3.039836883544922,
+              "time_ms": 3.009796142578125,
               "targets": 5,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             }
           ],
-          "total_time_ms": 12.079238891601562,
-          "avg_time_ms": 3.0198097229003906,
+          "total_time_ms": 14.095306396484375,
+          "avg_time_ms": 3.5238265991210938,
           "total_targets": 20,
           "avg_targets": 5.0
         },
@@ -88,35 +88,35 @@
           "frames": [
             {
               "frame": 0,
-              "time_ms": 9.552717208862305,
+              "time_ms": 11.126041412353516,
               "targets": 15,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 1,
-              "time_ms": 10.046243667602539,
+              "time_ms": 10.564804077148438,
               "targets": 15,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 2,
-              "time_ms": 9.440183639526367,
+              "time_ms": 11.340618133544922,
               "targets": 15,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             },
             {
               "frame": 3,
-              "time_ms": 10.34092903137207,
+              "time_ms": 11.582136154174805,
               "targets": 15,
               "observations": 8,
-              "detections": 17
+              "detections": 20
             }
           ],
-          "total_time_ms": 39.38007354736328,
-          "avg_time_ms": 9.84501838684082,
+          "total_time_ms": 44.61359977722168,
+          "avg_time_ms": 11.15339994430542,
           "total_targets": 60,
           "avg_targets": 15.0
         }
@@ -137,42 +137,42 @@
           "frames": [
             {
               "frame": 0,
-              "time_ms": 18.124818801879883,
+              "time_ms": 21.8503475189209,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 1,
-              "time_ms": 18.259525299072266,
+              "time_ms": 21.6062068939209,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 2,
-              "time_ms": 18.925189971923828,
+              "time_ms": 22.05038070678711,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 3,
-              "time_ms": 18.105506896972656,
+              "time_ms": 21.267414093017578,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 4,
-              "time_ms": 18.055438995361328,
+              "time_ms": 21.96502685546875,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             }
           ],
-          "total_time_ms": 91.47047996520996,
-          "avg_time_ms": 18.294095993041992,
+          "total_time_ms": 108.73937606811523,
+          "avg_time_ms": 21.747875213623047,
           "total_targets": 175,
           "avg_targets": 35.0
         },
@@ -180,42 +180,42 @@
           "frames": [
             {
               "frame": 0,
-              "time_ms": 4.566669464111328,
+              "time_ms": 4.712343215942383,
               "targets": 8,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 1,
-              "time_ms": 4.471063613891602,
+              "time_ms": 4.129648208618164,
               "targets": 8,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 2,
-              "time_ms": 4.218101501464844,
+              "time_ms": 4.876852035522461,
               "targets": 8,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 3,
-              "time_ms": 4.677295684814453,
+              "time_ms": 4.611492156982422,
               "targets": 8,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 4,
-              "time_ms": 6.044626235961914,
+              "time_ms": 4.71806526184082,
               "targets": 8,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             }
           ],
-          "total_time_ms": 23.97775650024414,
-          "avg_time_ms": 4.795551300048828,
+          "total_time_ms": 23.04840087890625,
+          "avg_time_ms": 4.60968017578125,
           "total_targets": 40,
           "avg_targets": 8.0
         },
@@ -223,42 +223,42 @@
           "frames": [
             {
               "frame": 0,
-              "time_ms": 31.74448013305664,
+              "time_ms": 27.262210845947266,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 1,
-              "time_ms": 22.8884220123291,
+              "time_ms": 25.577783584594727,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 2,
-              "time_ms": 23.190021514892578,
+              "time_ms": 26.086091995239258,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 3,
-              "time_ms": 22.034168243408203,
+              "time_ms": 25.763273239135742,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             },
             {
               "frame": 4,
-              "time_ms": 23.574352264404297,
+              "time_ms": 26.5810489654541,
               "targets": 35,
               "observations": 8,
-              "detections": 24
+              "detections": 28
             }
           ],
-          "total_time_ms": 123.43144416809082,
-          "avg_time_ms": 24.686288833618164,
+          "total_time_ms": 131.2704086303711,
+          "avg_time_ms": 26.25408172607422,
           "total_targets": 175,
           "avg_targets": 35.0
         }
@@ -279,85 +279,85 @@
           "frames": [
             {
               "frame": 0,
-              "time_ms": 113.87777328491211,
-              "targets": 77,
+              "time_ms": 114.75944519042969,
+              "targets": 78,
               "observations": 8,
               "detections": 50
             },
             {
               "frame": 1,
-              "time_ms": 108.23655128479004,
-              "targets": 77,
+              "time_ms": 114.71438407897949,
+              "targets": 78,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             },
             {
               "frame": 2,
-              "time_ms": 110.33868789672852,
+              "time_ms": 114.26925659179688,
               "targets": 77,
               "observations": 8,
               "detections": 50
             },
             {
               "frame": 3,
-              "time_ms": 105.7593822479248,
+              "time_ms": 112.75005340576172,
               "targets": 77,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             },
             {
               "frame": 4,
-              "time_ms": 105.65876960754395,
-              "targets": 77,
+              "time_ms": 114.21585083007812,
+              "targets": 78,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             }
           ],
-          "total_time_ms": 543.8711643218994,
-          "avg_time_ms": 108.77423286437988,
-          "total_targets": 385,
-          "avg_targets": 77.0
+          "total_time_ms": 570.7089900970459,
+          "avg_time_ms": 114.14179801940918,
+          "total_targets": 388,
+          "avg_targets": 77.6
         },
         "space_carving": {
           "frames": [
             {
               "frame": 0,
-              "time_ms": 7.90095329284668,
+              "time_ms": 7.698774337768555,
               "targets": 12,
               "observations": 8,
               "detections": 50
             },
             {
               "frame": 1,
-              "time_ms": 7.793426513671875,
+              "time_ms": 7.604837417602539,
               "targets": 12,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             },
             {
               "frame": 2,
-              "time_ms": 7.852077484130859,
+              "time_ms": 7.381916046142578,
               "targets": 12,
               "observations": 8,
               "detections": 50
             },
             {
               "frame": 3,
-              "time_ms": 7.612705230712891,
+              "time_ms": 7.010221481323242,
               "targets": 12,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             },
             {
               "frame": 4,
-              "time_ms": 7.308006286621094,
+              "time_ms": 7.980585098266602,
               "targets": 12,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             }
           ],
-          "total_time_ms": 38.4671688079834,
-          "avg_time_ms": 7.69343376159668,
+          "total_time_ms": 37.676334381103516,
+          "avg_time_ms": 7.535266876220703,
           "total_targets": 60,
           "avg_targets": 12.0
         },
@@ -365,44 +365,44 @@
           "frames": [
             {
               "frame": 0,
-              "time_ms": 127.18701362609863,
-              "targets": 77,
+              "time_ms": 125.96654891967773,
+              "targets": 78,
               "observations": 8,
               "detections": 50
             },
             {
               "frame": 1,
-              "time_ms": 119.40264701843262,
-              "targets": 77,
+              "time_ms": 131.04510307312012,
+              "targets": 78,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             },
             {
               "frame": 2,
-              "time_ms": 123.55446815490723,
+              "time_ms": 126.61933898925781,
               "targets": 77,
               "observations": 8,
               "detections": 50
             },
             {
               "frame": 3,
-              "time_ms": 118.14355850219727,
+              "time_ms": 126.24740600585938,
               "targets": 77,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             },
             {
               "frame": 4,
-              "time_ms": 118.34406852722168,
-              "targets": 77,
+              "time_ms": 128.3280849456787,
+              "targets": 78,
               "observations": 8,
-              "detections": 49
+              "detections": 50
             }
           ],
-          "total_time_ms": 606.6317558288574,
-          "avg_time_ms": 121.32635116577148,
-          "total_targets": 385,
-          "avg_targets": 77.0
+          "total_time_ms": 638.2064819335938,
+          "avg_time_ms": 127.64129638671875,
+          "total_targets": 388,
+          "avg_targets": 77.6
         }
       }
     }
