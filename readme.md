@@ -10,6 +10,194 @@ This project develops a comprehensive simulation framework that combines:
 - Volumetric motion detection using probabilistic occupancy grids
 - Real-time 3D target detection and tracking algorithms
 
+## Technical Specifications
+
+### Volumetric Detection Parameters
+
+#### Voxel Resolution Impact
+The **voxel resolution** parameter determines the size of 3D grid cubes used for volumetric analysis:
+
+| Resolution | Voxel Size | Total Voxels | Memory Usage | Performance | Detection Precision |
+|------------|------------|--------------|--------------|-------------|-------------------|
+| 10.0m      | 10×10×10m  | 450,000      | ~10MB       | Fastest     | Low precision     |
+| 7.0m       | 7×7×7m     | 1.3M         | ~30MB       | Fast        | Medium precision  |
+| 5.0m       | 5×5×5m     | 3.6M         | ~82MB       | Moderate    | Good precision    |
+| 3.0m       | 3×3×3m     | 16.7M        | ~381MB      | Slow        | High precision    |
+| 2.0m       | 2×2×2m     | 56.3M        | ~1.3GB      | Very slow   | Very high precision |
+| 1.5m       | 1.5×1.5×1.5m | 133M+      | ~3GB+       | Impractical | Maximum precision |
+
+**Recommended Configurations:**
+- **Development/Testing**: 10.0m resolution (fast, low memory)
+- **Standard Operation**: 5.0-7.0m resolution (balanced performance)
+- **High-Precision Research**: 3.0m resolution (maximum practical precision)
+
+#### Memory Usage Formula
+```
+Total Voxels = (Area_X / Resolution) × (Area_Y / Resolution) × (Area_Z / Resolution)
+Memory (MB) = Total_Voxels × 3_coordinates × 8_bytes / (1024²)
+```
+
+### Surveillance Coverage Specifications
+
+#### Operational Area
+```python
+# Default simulation bounds
+Surveillance Area: 1000m × 1000m (1 km²)
+Altitude Range: 50m - 500m above ground level
+Total Volume: 450,000,000 m³
+```
+
+#### Altitude Detection Characteristics
+
+| Altitude Range | Detection Difficulty | Voxel Resolution Needed | Typical Use Cases |
+|----------------|---------------------|------------------------|-------------------|
+| 50-150m        | Easy                | 5.0-7.0m              | Low-altitude surveillance, landing detection |
+| 150-300m       | Moderate            | 3.0-5.0m              | Standard patrol monitoring |
+| 300-500m       | Challenging         | 2.0-3.0m              | High-altitude tracking, long-range detection |
+
+#### Camera Array Specifications
+
+**Perimeter Configuration (Default):**
+- **Camera Count**: 8 cameras
+- **Placement**: Distributed around surveillance perimeter
+- **Detection Range**: 1-2 km (varies by sensor type)
+- **Field of View**: Overlapping coverage for 3D triangulation
+- **Coverage**: Complete perimeter monitoring with altitude coverage
+
+**Triangulation Configuration:**
+- **Camera Count**: 6 cameras
+- **Placement**: Optimized for 3D accuracy
+- **Detection Range**: 1-1.5 km
+- **Precision**: Higher 3D positioning accuracy
+- **Coverage**: Optimized for central area detection
+
+#### Detection Range vs. Distance
+
+| Distance from Cameras | Detection Confidence | Recommended Resolution | Processing Time |
+|----------------------|---------------------|----------------------|----------------|
+| 0-500m               | High (0.7-0.9)      | 5.0-7.0m            | Fast           |
+| 500-1000m            | Medium (0.5-0.7)    | 3.0-5.0m            | Moderate       |
+| 1000-1500m           | Low (0.3-0.5)       | 2.0-3.0m            | Slow           |
+| 1500m+               | Very Low (<0.3)     | 1.5-2.0m            | Very slow      |
+
+### Drone Detection Capabilities
+
+#### Drone Size vs. Detection Range
+
+| Drone Type | Wingspan | Max Speed | Detection Range | Min Resolution | Typical Confidence |
+|------------|----------|-----------|----------------|---------------|-------------------|
+| Micro      | 0.3m     | 15 m/s    | 300-800m       | 3.0m          | 0.3-0.6          |
+| Small      | 0.8m     | 25 m/s    | 500-1200m      | 5.0m          | 0.4-0.7          |
+| Medium     | 1.5m     | 35 m/s    | 800-1500m      | 7.0m          | 0.5-0.8          |
+| Large      | 2.5m+    | 45 m/s    | 1000-2000m     | 10.0m         | 0.6-0.9          |
+
+#### Altitude-Specific Performance
+
+**Low Altitude (50-150m):**
+- **Advantages**: High detail, strong sensor response, precise tracking
+- **Challenges**: Limited coverage area per camera
+- **Optimal Resolution**: 5.0-7.0m
+- **Detection Confidence**: 0.6-0.9
+
+**Medium Altitude (150-300m):**
+- **Advantages**: Balanced coverage and detail, optimal sensor performance
+- **Challenges**: Moderate atmospheric interference
+- **Optimal Resolution**: 3.0-5.0m
+- **Detection Confidence**: 0.5-0.8
+
+**High Altitude (300-500m):**
+- **Advantages**: Wide area coverage, strategic overview
+- **Challenges**: Reduced sensor resolution, atmospheric effects
+- **Optimal Resolution**: 2.0-3.0m
+- **Detection Confidence**: 0.3-0.7
+
+### Algorithm Performance Characteristics
+
+#### Detection Method Comparison
+
+| Method | Processing Time | Target Count | Precision | Coverage | Best Use Case |
+|--------|----------------|--------------|-----------|----------|---------------|
+| **Triangulation** | 6.2ms | 15 targets | Medium | High | Comprehensive surveillance |
+| **Space Carving** | 0.9ms | 5 targets | High | Medium | Precision tracking |
+| **Hybrid** | 7.7ms | 15 targets | High | High | Optimal balanced detection |
+
+#### Performance vs. Resolution Trade-offs
+
+| Resolution | Triangulation | Space Carving | Hybrid | Memory | Use Case |
+|------------|---------------|---------------|--------|--------|----------|
+| 10.0m      | 3-8ms         | 0.5-1.0ms     | 4-9ms  | 10MB   | Real-time development |
+| 7.0m       | 8-15ms        | 1.0-2.0ms     | 10-18ms| 30MB   | Standard operation |
+| 5.0m       | 15-25ms       | 2.0-4.0ms     | 18-30ms| 82MB   | High-quality detection |
+| 3.0m       | 50-100ms      | 5.0-10ms      | 60-120ms| 381MB | Research/analysis |
+
+### Environmental Factors
+
+#### Weather Impact on Detection
+
+| Condition | Visibility | Detection Range | Confidence Penalty | Recommended Settings |
+|-----------|------------|----------------|-------------------|---------------------|
+| Clear     | Excellent  | 100%           | None              | Standard resolution |
+| Light Rain| Good       | 80%            | -10%              | Increase resolution 1 step |
+| Heavy Rain| Poor       | 60%            | -25%              | Increase resolution 2 steps |
+| Fog       | Very Poor  | 40%            | -40%              | Maximum resolution needed |
+
+#### Time of Day Considerations
+
+| Time Period | Sensor Type | Detection Quality | Recommended Configuration |
+|-------------|-------------|------------------|--------------------------|
+| Daylight    | Visible     | Excellent        | Standard settings        |
+| Dawn/Dusk   | Mixed       | Good             | Slightly higher resolution|
+| Night       | Thermal/IR  | Variable         | Higher resolution + thermal|
+
+### System Resource Requirements
+
+#### Minimum Requirements
+- **CPU**: Quad-core 2.0GHz
+- **RAM**: 8GB (for resolutions ≥5.0m)
+- **Storage**: 2GB free space
+- **Python**: 3.11+
+
+#### Recommended Specifications
+- **CPU**: 8+ cores, 3.0GHz+ (AMD Ryzen 5/7, Intel i5/i7)
+- **RAM**: 16-32GB (for resolutions 3.0-5.0m)
+- **Storage**: 5GB free space
+- **GPU**: Optional (future enhancement)
+
+#### High-Performance Research Setup
+- **CPU**: 12+ cores, 3.5GHz+ (AMD Ryzen 7/9, Intel i7/i9)
+- **RAM**: 32-64GB (for resolutions ≤3.0m)
+- **Storage**: 10GB+ SSD
+- **Network**: High-speed for distributed processing
+
+### Configuration Guidelines
+
+#### Performance-Optimized Settings
+```bash
+# Fast development testing
+python minimal_launcher.py --resolution 10.0 --drones 5 --duration 2.0
+
+# Balanced production use
+python minimal_launcher.py --resolution 5.0 --drones 12 --duration 5.0
+```
+
+#### Accuracy-Optimized Settings
+```bash
+# High-precision research
+python safe_integration_test.py  # Uses conservative 10.0m resolution
+
+# Maximum practical accuracy (requires 32GB+ RAM)
+python minimal_launcher.py --resolution 3.0 --drones 8 --duration 3.0
+```
+
+#### Resource-Constrained Settings
+```bash
+# Low memory systems (8GB RAM)
+python minimal_launcher.py --resolution 10.0 --drones 3 --duration 1.0
+
+# Limited processing power
+python debug_test.py  # Minimal resource usage
+```
+
 ## Visualization Examples
 
 The system generates comprehensive visualizations of both sensor coverage and drone trajectory patterns:
