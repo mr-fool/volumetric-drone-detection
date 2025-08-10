@@ -1,11 +1,11 @@
 {
-  "timestamp": "2025-08-09T14:29:58.647115",
+  "timestamp": "2025-08-10T13:47:23.452054",
   "parameters": {
-    "resolution": 5.0,
-    "drones": 12,
+    "resolution": 10.0,
+    "drones": 8,
     "duration": 5.0,
-    "voxel_count": 3600000,
-    "memory_mb": 82.3974609375
+    "voxel_count": 450000,
+    "memory_mb": 10.2996826171875
   },
   "results": {
     "triangulation": [
@@ -13,101 +13,101 @@
         "frame": 0,
         "timestamp": 0.0,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.45866584777832,
-        "detect_time_ms": 126.71232223510742,
-        "total_time_ms": 131.17098808288574
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.931760787963867,
+        "detect_time_ms": 20.810365676879883,
+        "total_time_ms": 24.74212646484375
       },
       {
         "frame": 1,
         "timestamp": 0.5555555555555556,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.578828811645508,
-        "detect_time_ms": 110.81933975219727,
-        "total_time_ms": 115.39816856384277
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.758668899536133,
+        "detect_time_ms": 18.74375343322754,
+        "total_time_ms": 22.502422332763672
       },
       {
         "frame": 2,
         "timestamp": 1.1111111111111112,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.671573638916016,
-        "detect_time_ms": 110.37039756774902,
-        "total_time_ms": 115.04197120666504
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.445148468017578,
+        "detect_time_ms": 18.584728240966797,
+        "total_time_ms": 22.029876708984375
       },
       {
         "frame": 3,
         "timestamp": 1.6666666666666667,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.572629928588867,
-        "detect_time_ms": 111.18030548095703,
-        "total_time_ms": 115.7529354095459
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.461122512817383,
+        "detect_time_ms": 19.872665405273438,
+        "total_time_ms": 23.33378791809082
       },
       {
         "frame": 4,
         "timestamp": 2.2222222222222223,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.3239593505859375,
-        "detect_time_ms": 110.79692840576172,
-        "total_time_ms": 115.12088775634766
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.5631656646728516,
+        "detect_time_ms": 18.99266242980957,
+        "total_time_ms": 22.555828094482422
       },
       {
         "frame": 5,
         "timestamp": 2.7777777777777777,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.634618759155273,
-        "detect_time_ms": 112.09583282470703,
-        "total_time_ms": 116.7304515838623
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.509044647216797,
+        "detect_time_ms": 20.411014556884766,
+        "total_time_ms": 23.920059204101562
       },
       {
         "frame": 6,
         "timestamp": 3.3333333333333335,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.3392181396484375,
-        "detect_time_ms": 113.58261108398438,
-        "total_time_ms": 117.92182922363281
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.2939910888671875,
+        "detect_time_ms": 18.741130828857422,
+        "total_time_ms": 22.03512191772461
       },
       {
         "frame": 7,
         "timestamp": 3.8888888888888893,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.763603210449219,
-        "detect_time_ms": 111.41300201416016,
-        "total_time_ms": 116.17660522460938
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.336668014526367,
+        "detect_time_ms": 18.819808959960938,
+        "total_time_ms": 22.156476974487305
       },
       {
         "frame": 8,
         "timestamp": 4.444444444444445,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.775285720825195,
-        "detect_time_ms": 111.7100715637207,
-        "total_time_ms": 116.4853572845459
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.566265106201172,
+        "detect_time_ms": 18.814802169799805,
+        "total_time_ms": 22.381067276000977
       },
       {
         "frame": 9,
         "timestamp": 5.0,
         "observations": 8,
-        "detections": 48,
-        "targets_found": 78,
-        "obs_time_ms": 4.411458969116211,
-        "detect_time_ms": 102.76246070861816,
-        "total_time_ms": 107.17391967773438
+        "detections": 28,
+        "targets_found": 36,
+        "obs_time_ms": 3.8080215454101562,
+        "detect_time_ms": 20.947694778442383,
+        "total_time_ms": 24.75571632385254
       }
     ],
     "space_carving": [
@@ -115,101 +115,101 @@
         "frame": 0,
         "timestamp": 0.0,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 4.304409027099609,
-        "detect_time_ms": 3.8728713989257812,
-        "total_time_ms": 8.17728042602539
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.6363601684570312,
+        "detect_time_ms": 1.7321109771728516,
+        "total_time_ms": 5.368471145629883
       },
       {
         "frame": 1,
         "timestamp": 0.5555555555555556,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 4.136085510253906,
-        "detect_time_ms": 3.7887096405029297,
-        "total_time_ms": 7.924795150756836
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.467559814453125,
+        "detect_time_ms": 1.7621517181396484,
+        "total_time_ms": 5.229711532592773
       },
       {
         "frame": 2,
         "timestamp": 1.1111111111111112,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 4.053354263305664,
-        "detect_time_ms": 3.3922195434570312,
-        "total_time_ms": 7.445573806762695
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.331899642944336,
+        "detect_time_ms": 1.9550323486328125,
+        "total_time_ms": 5.286931991577148
       },
       {
         "frame": 3,
         "timestamp": 1.6666666666666667,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 3.670930862426758,
-        "detect_time_ms": 3.2460689544677734,
-        "total_time_ms": 6.916999816894531
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.1104087829589844,
+        "detect_time_ms": 1.7158985137939453,
+        "total_time_ms": 4.82630729675293
       },
       {
         "frame": 4,
         "timestamp": 2.2222222222222223,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 4.356145858764648,
-        "detect_time_ms": 3.485441207885742,
-        "total_time_ms": 7.841587066650391
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.365755081176758,
+        "detect_time_ms": 1.760244369506836,
+        "total_time_ms": 5.125999450683594
       },
       {
         "frame": 5,
         "timestamp": 2.7777777777777777,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 4.347801208496094,
-        "detect_time_ms": 3.2198429107666016,
-        "total_time_ms": 7.567644119262695
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.023386001586914,
+        "detect_time_ms": 1.7249584197998047,
+        "total_time_ms": 4.748344421386719
       },
       {
         "frame": 6,
         "timestamp": 3.3333333333333335,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 4.385709762573242,
-        "detect_time_ms": 3.360748291015625,
-        "total_time_ms": 7.746458053588867
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.155231475830078,
+        "detect_time_ms": 1.71661376953125,
+        "total_time_ms": 4.871845245361328
       },
       {
         "frame": 7,
         "timestamp": 3.8888888888888893,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 4.0950775146484375,
-        "detect_time_ms": 3.316164016723633,
-        "total_time_ms": 7.41124153137207
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.026723861694336,
+        "detect_time_ms": 1.73187255859375,
+        "total_time_ms": 4.758596420288086
       },
       {
         "frame": 8,
         "timestamp": 4.444444444444445,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 12,
-        "obs_time_ms": 4.389762878417969,
-        "detect_time_ms": 3.834247589111328,
-        "total_time_ms": 8.224010467529297
+        "detections": 27,
+        "targets_found": 8,
+        "obs_time_ms": 3.1270980834960938,
+        "detect_time_ms": 1.5892982482910156,
+        "total_time_ms": 4.716396331787109
       },
       {
         "frame": 9,
         "timestamp": 5.0,
         "observations": 8,
-        "detections": 48,
-        "targets_found": 12,
-        "obs_time_ms": 4.533052444458008,
-        "detect_time_ms": 3.381967544555664,
-        "total_time_ms": 7.915019989013672
+        "detections": 28,
+        "targets_found": 8,
+        "obs_time_ms": 3.177642822265625,
+        "detect_time_ms": 1.4357566833496094,
+        "total_time_ms": 4.613399505615234
       }
     ],
     "hybrid": [
@@ -217,101 +217,101 @@
         "frame": 0,
         "timestamp": 0.0,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.338979721069336,
-        "detect_time_ms": 128.0820369720459,
-        "total_time_ms": 132.42101669311523
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.004312515258789,
+        "detect_time_ms": 24.8715877532959,
+        "total_time_ms": 27.875900268554688
       },
       {
         "frame": 1,
         "timestamp": 0.5555555555555556,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.64940071105957,
-        "detect_time_ms": 124.77850914001465,
-        "total_time_ms": 129.42790985107422
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.2012462615966797,
+        "detect_time_ms": 24.015426635742188,
+        "total_time_ms": 27.216672897338867
       },
       {
         "frame": 2,
         "timestamp": 1.1111111111111112,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.097461700439453,
-        "detect_time_ms": 123.77762794494629,
-        "total_time_ms": 127.87508964538574
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.22723388671875,
+        "detect_time_ms": 24.144649505615234,
+        "total_time_ms": 27.371883392333984
       },
       {
         "frame": 3,
         "timestamp": 1.6666666666666667,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 3.9153099060058594,
-        "detect_time_ms": 126.44362449645996,
-        "total_time_ms": 130.35893440246582
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 2.944469451904297,
+        "detect_time_ms": 24.524927139282227,
+        "total_time_ms": 27.469396591186523
       },
       {
         "frame": 4,
         "timestamp": 2.2222222222222223,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.6520233154296875,
-        "detect_time_ms": 126.56760215759277,
-        "total_time_ms": 131.21962547302246
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.170490264892578,
+        "detect_time_ms": 25.975465774536133,
+        "total_time_ms": 29.14595603942871
       },
       {
         "frame": 5,
         "timestamp": 2.7777777777777777,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 5.110979080200195,
-        "detect_time_ms": 126.1296272277832,
-        "total_time_ms": 131.2406063079834
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.566265106201172,
+        "detect_time_ms": 23.262739181518555,
+        "total_time_ms": 26.829004287719727
       },
       {
         "frame": 6,
         "timestamp": 3.3333333333333335,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.425764083862305,
-        "detect_time_ms": 124.29308891296387,
-        "total_time_ms": 128.71885299682617
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.294229507446289,
+        "detect_time_ms": 23.894548416137695,
+        "total_time_ms": 27.188777923583984
       },
       {
         "frame": 7,
         "timestamp": 3.8888888888888893,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.331827163696289,
-        "detect_time_ms": 124.5882511138916,
-        "total_time_ms": 128.9200782775879
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.180980682373047,
+        "detect_time_ms": 23.21481704711914,
+        "total_time_ms": 26.395797729492188
       },
       {
         "frame": 8,
         "timestamp": 4.444444444444445,
         "observations": 8,
-        "detections": 50,
-        "targets_found": 78,
-        "obs_time_ms": 4.203557968139648,
-        "detect_time_ms": 125.75674057006836,
-        "total_time_ms": 129.960298538208
+        "detections": 27,
+        "targets_found": 36,
+        "obs_time_ms": 3.143787384033203,
+        "detect_time_ms": 23.978710174560547,
+        "total_time_ms": 27.12249755859375
       },
       {
         "frame": 9,
         "timestamp": 5.0,
         "observations": 8,
-        "detections": 48,
-        "targets_found": 78,
-        "obs_time_ms": 4.123449325561523,
-        "detect_time_ms": 117.9499626159668,
-        "total_time_ms": 122.07341194152832
+        "detections": 28,
+        "targets_found": 36,
+        "obs_time_ms": 3.4613609313964844,
+        "detect_time_ms": 25.667667388916016,
+        "total_time_ms": 29.1290283203125
       }
     ]
   }

@@ -12,6 +12,7 @@ from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
 import time
+import os
 
 class SensorType(Enum):
     VISIBLE_SPECTRUM = "visible"
@@ -513,96 +514,477 @@ class VirtualSensorArray:
         }
     
     def visualize_sensor_coverage(self, elevation_slice: float = 200.0) -> plt.Figure:
-            """Visualize sensor array coverage at specified elevation - FIXED VERSION"""
+        """Visualize sensor array coverage at specified elevation - FIXED VERSION"""
+        
+        # Larger figure with better proportions
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+        
+        # Calculate extended bounds to include all cameras
+        all_x = [cam.position[0] for cam in self.cameras] + [self.bounds.x_min, self.bounds.x_max]
+        all_y = [cam.position[1] for cam in self.cameras] + [self.bounds.y_min, self.bounds.y_max]
+        
+        x_margin = (max(all_x) - min(all_x)) * 0.15  # 15% margin
+        y_margin = (max(all_y) - min(all_y)) * 0.15
+        
+        ax1.set_xlim(min(all_x) - x_margin, max(all_x) + x_margin)
+        ax1.set_ylim(min(all_y) - y_margin, max(all_y) + y_margin)
+        
+        print(f"DEBUG: Displaying {len(self.cameras)} cameras")
+        print(f"Camera positions: {[(cam.position[0], cam.position[1]) for cam in self.cameras]}")
+        print(f"Plot bounds: X=[{min(all_x)-x_margin:.0f}, {max(all_x)+x_margin:.0f}], Y=[{min(all_y)-y_margin:.0f}, {max(all_y)+y_margin:.0f}]")
+        
+        for i, camera in enumerate(self.cameras):
+            # Larger camera markers
+            ax1.plot(camera.position[0], camera.position[1], 'ro', markersize=12, 
+                    markeredgecolor='black', markeredgewidth=1.5)
             
-            # Larger figure with better proportions
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+            # Better camera labels with background
+            ax1.annotate(f'Cam{i+1}', 
+                        (camera.position[0], camera.position[1]),
+                        xytext=(10, 10), textcoords='offset points',
+                        fontsize=11, fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.4', facecolor='yellow', alpha=0.8),
+                        ha='left', va='bottom')
             
-            # Calculate extended bounds to include all cameras
-            all_x = [cam.position[0] for cam in self.cameras] + [self.bounds.x_min, self.bounds.x_max]
-            all_y = [cam.position[1] for cam in self.cameras] + [self.bounds.y_min, self.bounds.y_max]
+            # Draw field of view cone (simplified 2D projection)
+            yaw = np.radians(camera.orientation[0])
+            h_fov = np.radians(camera.spec.field_of_view[0])
+            fov_range = camera.spec.max_range * 0.4  # Shorter lines for clarity
             
-            x_margin = (max(all_x) - min(all_x)) * 0.15  # 15% margin
-            y_margin = (max(all_y) - min(all_y)) * 0.15
+            # FOV boundary rays
+            angles = [yaw - h_fov/2, yaw + h_fov/2]
+            for angle in angles:
+                end_x = camera.position[0] + fov_range * np.cos(angle)
+                end_y = camera.position[1] + fov_range * np.sin(angle)
+                ax1.plot([camera.position[0], end_x], 
+                        [camera.position[1], end_y], 'b--', alpha=0.7, linewidth=2)
+        
+        # Draw surveillance area boundary as a rectangle
+        rect = plt.Rectangle((self.bounds.x_min, self.bounds.y_min), 
+                            self.bounds.x_max - self.bounds.x_min,
+                            self.bounds.y_max - self.bounds.y_min,
+                            fill=False, edgecolor='green', linewidth=3, label='Surveillance Area')
+        ax1.add_patch(rect)
+        
+        ax1.set_xlabel('X (meters)', fontsize=12)
+        ax1.set_ylabel('Y (meters)', fontsize=12)
+        ax1.set_title(f'Sensor Array Layout ({len(self.cameras)} cameras)', fontsize=14, fontweight='bold')
+        ax1.grid(True, alpha=0.3)
+        ax1.set_aspect('equal')
+        ax1.legend()
+        
+        # Plot 2: Detection range vs angle for first camera
+        if self.cameras:
+            camera = self.cameras[0]
+            angles = np.linspace(-90, 90, 181)
+            detection_ranges = []
             
-            ax1.set_xlim(min(all_x) - x_margin, max(all_x) + x_margin)
-            ax1.set_ylim(min(all_y) - y_margin, max(all_y) + y_margin)
-            
-            print(f"DEBUG: Displaying {len(self.cameras)} cameras")
-            print(f"Camera positions: {[(cam.position[0], cam.position[1]) for cam in self.cameras]}")
-            print(f"Plot bounds: X=[{min(all_x)-x_margin:.0f}, {max(all_x)+x_margin:.0f}], Y=[{min(all_y)-y_margin:.0f}, {max(all_y)+y_margin:.0f}]")
-            
-            for i, camera in enumerate(self.cameras):
-                # Larger camera markers
-                ax1.plot(camera.position[0], camera.position[1], 'ro', markersize=12, 
-                        markeredgecolor='black', markeredgewidth=1.5)
+            for angle in angles:
+                # Test detection at this angle
+                test_range = camera.spec.max_range * 0.8
+                test_x = camera.position[0] + test_range * np.cos(np.radians(angle))
+                test_y = camera.position[1] + test_range * np.sin(np.radians(angle))
+                test_pos = np.array([test_x, test_y, elevation_slice])
                 
-                # Better camera labels with background
-                ax1.annotate(f'Cam{i+1}', 
-                            (camera.position[0], camera.position[1]),
-                            xytext=(10, 10), textcoords='offset points',
-                            fontsize=11, fontweight='bold',
-                            bbox=dict(boxstyle='round,pad=0.4', facecolor='yellow', alpha=0.8),
-                            ha='left', va='bottom')
+                detection = self._check_detection_feasibility(camera, test_pos)
+                if detection['detectable']:
+                    detection_ranges.append(detection['range'])
+                else:
+                    detection_ranges.append(0)
+            
+            ax2.plot(angles, detection_ranges, 'g-', linewidth=2)
+            ax2.fill_between(angles, detection_ranges, alpha=0.3, color='green')
+            ax2.set_xlabel('Angle (degrees)', fontsize=12)
+            ax2.set_ylabel('Detection Range (meters)', fontsize=12)
+            ax2.set_title(f'Detection Range Profile - {camera.camera_id}', fontsize=14, fontweight='bold')
+            ax2.grid(True, alpha=0.3)
+        
+        # Better spacing to prevent clipping - THIS IS THE KEY FIX
+        plt.tight_layout(pad=2.0)
+        plt.subplots_adjust(left=0.08, right=0.96, top=0.92, bottom=0.12, wspace=0.3)
+        
+        return fig
+
+    # NEW DETECTION RANGE ANALYSIS METHODS - ADD THESE FOR THE NEW FEATURES
+    def visualize_all_camera_detection_ranges(self, elevation_slice: float = 200.0, output_dir: str = 'images') -> List[str]:
+        """
+        Generate separate detection range plots for each camera
+        Returns list of saved file paths
+        """
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        saved_files = []
+        
+        print(f"Generating detection range plots for {len(self.cameras)} cameras...")
+        
+        for i, camera in enumerate(self.cameras):
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+            
+            # Left plot: Camera position in context
+            self._plot_camera_context(ax1, camera, i)
+            
+            # Right plot: Detection range profile
+            self._plot_single_camera_detection_range(ax2, camera, elevation_slice)
+            
+            # Save individual camera plot
+            filename = f'camera_{i+1:02d}_detection_range.png'
+            filepath = os.path.join(output_dir, filename)
+            
+            plt.tight_layout(pad=2.0)
+            plt.subplots_adjust(left=0.08, right=0.96, top=0.92, bottom=0.12, wspace=0.3)
+            
+            fig.savefig(filepath, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            
+            saved_files.append(filepath)
+            print(f"  Saved: {filename}")
+        
+        # Also create a summary comparison plot
+        summary_file = self.create_detection_range_summary(elevation_slice, output_dir)
+        saved_files.append(summary_file)
+        
+        return saved_files
+
+    def _plot_camera_context(self, ax, target_camera, camera_index):
+        """Plot the camera's position in context of the full array"""
+        
+        # Calculate bounds
+        all_x = [cam.position[0] for cam in self.cameras] + [self.bounds.x_min, self.bounds.x_max]
+        all_y = [cam.position[1] for cam in self.cameras] + [self.bounds.y_min, self.bounds.y_max]
+        
+        x_margin = (max(all_x) - min(all_x)) * 0.15
+        y_margin = (max(all_y) - min(all_y)) * 0.15
+        
+        ax.set_xlim(min(all_x) - x_margin, max(all_x) + x_margin)
+        ax.set_ylim(min(all_y) - y_margin, max(all_y) + y_margin)
+        
+        # Plot all cameras (dimmed)
+        for i, camera in enumerate(self.cameras):
+            if i == camera_index:
+                # Highlight the target camera
+                ax.plot(camera.position[0], camera.position[1], 'ro', 
+                       markersize=15, markeredgecolor='black', markeredgewidth=2,
+                       label=f'Camera {i+1} (Active)')
                 
-                # Draw field of view cone (simplified 2D projection)
+                # Show its FOV in detail
                 yaw = np.radians(camera.orientation[0])
                 h_fov = np.radians(camera.spec.field_of_view[0])
-                fov_range = camera.spec.max_range * 0.4  # Shorter lines for clarity
+                fov_range = camera.spec.max_range * 0.4
                 
-                # FOV boundary rays
-                angles = [yaw - h_fov/2, yaw + h_fov/2]
-                for angle in angles:
+                # FOV boundary lines
+                for angle in [yaw - h_fov/2, yaw + h_fov/2]:
                     end_x = camera.position[0] + fov_range * np.cos(angle)
                     end_y = camera.position[1] + fov_range * np.sin(angle)
-                    ax1.plot([camera.position[0], end_x], 
-                            [camera.position[1], end_y], 'b--', alpha=0.7, linewidth=2)
+                    ax.plot([camera.position[0], end_x], [camera.position[1], end_y], 
+                           'r-', alpha=0.8, linewidth=3)
+                
+                # FOV arc
+                arc_angles = np.linspace(yaw - h_fov/2, yaw + h_fov/2, 20)
+                arc_x = camera.position[0] + fov_range * np.cos(arc_angles)
+                arc_y = camera.position[1] + fov_range * np.sin(arc_angles)
+                ax.plot(arc_x, arc_y, 'r-', alpha=0.6, linewidth=2)
+                
+            else:
+                # Other cameras (dimmed)
+                ax.plot(camera.position[0], camera.position[1], 'gray', marker='o', 
+                       markersize=8, alpha=0.5)
+                ax.annotate(f'{i+1}', (camera.position[0], camera.position[1]),
+                           xytext=(0, 0), textcoords='offset points',
+                           fontsize=8, ha='center', va='center', alpha=0.6)
+        
+        # Surveillance area
+        rect = plt.Rectangle((self.bounds.x_min, self.bounds.y_min), 
+                            self.bounds.x_max - self.bounds.x_min,
+                            self.bounds.y_max - self.bounds.y_min,
+                            fill=False, edgecolor='green', linewidth=2, alpha=0.7)
+        ax.add_patch(rect)
+        
+        ax.set_xlabel('X (meters)', fontsize=11)
+        ax.set_ylabel('Y (meters)', fontsize=11)
+        ax.set_title(f'Camera {camera_index+1} Position & Field of View', fontsize=13, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal')
+        ax.legend()
+
+    def _plot_single_camera_detection_range(self, ax, camera, elevation_slice):
+        """Plot detection range profile for a single camera"""
+        
+        angles = np.linspace(-90, 90, 181)
+        detection_ranges = []
+        quality_scores = []
+        
+        for angle in angles:
+            # Test detection at this angle relative to camera orientation
+            test_range = camera.spec.max_range * 0.8
+            actual_angle = np.radians(angle + camera.orientation[0])
+            test_x = camera.position[0] + test_range * np.cos(actual_angle)
+            test_y = camera.position[1] + test_range * np.sin(actual_angle)
+            test_pos = np.array([test_x, test_y, elevation_slice])
             
-            # Draw surveillance area boundary as a rectangle
-            rect = plt.Rectangle((self.bounds.x_min, self.bounds.y_min), 
-                                self.bounds.x_max - self.bounds.x_min,
-                                self.bounds.y_max - self.bounds.y_min,
-                                fill=False, edgecolor='green', linewidth=3, label='Surveillance Area')
-            ax1.add_patch(rect)
-            
-            ax1.set_xlabel('X (meters)', fontsize=12)
-            ax1.set_ylabel('Y (meters)', fontsize=12)
-            ax1.set_title(f'Sensor Array Layout ({len(self.cameras)} cameras)', fontsize=14, fontweight='bold')
-            ax1.grid(True, alpha=0.3)
-            ax1.set_aspect('equal')
-            ax1.legend()
-            
-            # Plot 2: Detection range vs angle for first camera
-            if self.cameras:
-                camera = self.cameras[0]
+            detection = self._check_detection_feasibility(camera, test_pos)
+            if detection['detectable']:
+                detection_ranges.append(detection['range'])
+                quality_scores.append(detection.get('quality', 0.5))
+            else:
+                detection_ranges.append(0)
+                quality_scores.append(0)
+        
+        # Main detection range plot
+        ax.plot(angles, detection_ranges, 'b-', linewidth=3, label='Detection Range')
+        ax.fill_between(angles, detection_ranges, alpha=0.3, color='blue')
+        
+        # Add quality overlay
+        ax2 = ax.twinx()
+        ax2.plot(angles, quality_scores, 'orange', linewidth=2, alpha=0.7, label='Detection Quality')
+        ax2.set_ylabel('Detection Quality', color='orange', fontsize=11)
+        ax2.set_ylim(0, 1)
+        
+        # Calculate and display statistics
+        max_range = max(detection_ranges) if detection_ranges else 0
+        avg_range = np.mean([r for r in detection_ranges if r > 0]) if any(r > 0 for r in detection_ranges) else 0
+        effective_fov = sum(1 for r in detection_ranges if r > camera.spec.max_range * 0.1)
+        coverage_area = np.trapz([r for r in detection_ranges if r > 0], dx=2) if detection_ranges else 0
+        
+        # Add statistics text box
+        stats_text = (f'Camera Specifications:\n'
+                     f'• Sensor: {camera.spec.sensor_type.value}\n'
+                     f'• Resolution: {camera.spec.resolution[0]}×{camera.spec.resolution[1]}\n'
+                     f'• Max Range: {camera.spec.max_range:.0f}m\n'
+                     f'• FOV: {camera.spec.field_of_view[0]:.1f}°×{camera.spec.field_of_view[1]:.1f}°\n\n'
+                     f'Performance Metrics:\n'
+                     f'• Max Detection: {max_range:.0f}m\n'
+                     f'• Avg Range: {avg_range:.0f}m\n'
+                     f'• Effective FOV: {effective_fov}°\n'
+                     f'• Coverage Score: {coverage_area/1000:.1f}k')
+        
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=9,
+                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+        
+        ax.set_xlabel('Relative Angle (degrees)', fontsize=11)
+        ax.set_ylabel('Detection Range (meters)', fontsize=11)
+        ax.set_title(f'{camera.camera_id} - Detection Range Profile', fontsize=13, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper right')
+
+    def create_detection_range_summary(self, elevation_slice: float = 200.0, output_dir: str = 'images') -> str:
+        """Create a summary comparison of all cameras' detection ranges"""
+        
+        fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+        axes = axes.flatten()
+        
+        all_stats = []
+        
+        for i, camera in enumerate(self.cameras):
+            if i < len(axes):
                 angles = np.linspace(-90, 90, 181)
                 detection_ranges = []
                 
                 for angle in angles:
-                    # Test detection at this angle
                     test_range = camera.spec.max_range * 0.8
-                    test_x = camera.position[0] + test_range * np.cos(np.radians(angle))
-                    test_y = camera.position[1] + test_range * np.sin(np.radians(angle))
+                    actual_angle = np.radians(angle + camera.orientation[0])
+                    test_x = camera.position[0] + test_range * np.cos(actual_angle)
+                    test_y = camera.position[1] + test_range * np.sin(actual_angle)
                     test_pos = np.array([test_x, test_y, elevation_slice])
                     
                     detection = self._check_detection_feasibility(camera, test_pos)
-                    if detection['detectable']:
-                        detection_ranges.append(detection['range'])
-                    else:
-                        detection_ranges.append(0)
+                    detection_ranges.append(detection['range'] if detection['detectable'] else 0)
                 
-                ax2.plot(angles, detection_ranges, 'g-', linewidth=2)
-                ax2.fill_between(angles, detection_ranges, alpha=0.3, color='green')
-                ax2.set_xlabel('Angle (degrees)', fontsize=12)
-                ax2.set_ylabel('Detection Range (meters)', fontsize=12)
-                ax2.set_title(f'Detection Range Profile - {camera.camera_id}', fontsize=14, fontweight='bold')
-                ax2.grid(True, alpha=0.3)
+                # Plot individual camera
+                axes[i].plot(angles, detection_ranges, linewidth=2, 
+                            color=plt.cm.tab10(i), label=f'Camera {i+1}')
+                axes[i].fill_between(angles, detection_ranges, alpha=0.3, color=plt.cm.tab10(i))
+                
+                # Calculate stats
+                max_range = max(detection_ranges) if detection_ranges else 0
+                avg_range = np.mean([r for r in detection_ranges if r > 0]) if any(r > 0 for r in detection_ranges) else 0
+                effective_fov = sum(1 for r in detection_ranges if r > camera.spec.max_range * 0.1)
+                
+                all_stats.append({
+                    'camera_id': i+1,
+                    'max_range': max_range,
+                    'avg_range': avg_range,
+                    'effective_fov': effective_fov
+                })
+                
+                axes[i].set_title(f'Camera {i+1}', fontsize=12, fontweight='bold')
+                axes[i].set_xlabel('Angle (°)', fontsize=10)
+                axes[i].set_ylabel('Range (m)', fontsize=10)
+                axes[i].grid(True, alpha=0.3)
+                axes[i].set_ylim(0, max([camera.spec.max_range for camera in self.cameras]) * 1.1)
+        
+        plt.suptitle('Detection Range Comparison - All Cameras', fontsize=16, fontweight='bold')
+        plt.tight_layout()
+        
+        # Save summary
+        summary_file = os.path.join(output_dir, 'detection_range_summary_all_cameras.png')
+        fig.savefig(summary_file, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        
+        # Print summary statistics
+        print("\nDETECTION RANGE SUMMARY:")
+        print("=" * 50)
+        for stats in all_stats:
+            print(f"Camera {stats['camera_id']:2d}: Max={stats['max_range']:4.0f}m, "
+                  f"Avg={stats['avg_range']:4.0f}m, FOV={stats['effective_fov']:3.0f}°")
+        
+        return summary_file
+
+    def visualize_sensor_coverage_single_representative(self, elevation_slice: float = 200.0) -> plt.Figure:
+        """
+        Show one representative camera with clear explanation of what detection range means
+        This is good for audiences who need to understand the concept clearly
+        """
+        
+        fig = plt.figure(figsize=(18, 10))
+        
+        # Main layout: 2 rows, 3 columns
+        # Top row: Array overview, Representative camera detail, Detection explanation
+        # Bottom row: Detection range plot spanning 2 columns, Statistics
+        
+        # Array overview (top left)
+        ax1 = plt.subplot(2, 3, 1)
+        self._plot_full_array_overview(ax1)
+        
+        # Representative camera detail (top middle)
+        ax2 = plt.subplot(2, 3, 2)
+        representative_camera = self.cameras[0]  # Use first camera as representative
+        self._plot_camera_context(ax2, representative_camera, 0)
+        
+        # Detection explanation (top right)
+        ax3 = plt.subplot(2, 3, 3)
+        self._plot_detection_explanation(ax3)
+        
+        # Detection range plot (bottom, spanning 2 columns)
+        ax4 = plt.subplot(2, 3, (4, 5))
+        self._plot_single_camera_detection_range(ax4, representative_camera, elevation_slice)
+        
+        # Performance summary (bottom right)
+        ax5 = plt.subplot(2, 3, 6)
+        self._plot_array_performance_summary(ax5, elevation_slice)
+        
+        plt.tight_layout(pad=2.0)
+        return fig
+
+    def _plot_full_array_overview(self, ax):
+        """Plot overview of entire sensor array"""
+        # Similar to existing sensor layout plot but more compact
+        all_x = [cam.position[0] for cam in self.cameras] + [self.bounds.x_min, self.bounds.x_max]
+        all_y = [cam.position[1] for cam in self.cameras] + [self.bounds.y_min, self.bounds.y_max]
+        
+        x_margin = (max(all_x) - min(all_x)) * 0.1
+        y_margin = (max(all_y) - min(all_y)) * 0.1
+        
+        ax.set_xlim(min(all_x) - x_margin, max(all_x) + x_margin)
+        ax.set_ylim(min(all_y) - y_margin, max(all_y) + y_margin)
+        
+        # Plot all cameras
+        for i, camera in enumerate(self.cameras):
+            color = 'red' if i == 0 else 'blue'
+            size = 12 if i == 0 else 8
+            ax.plot(camera.position[0], camera.position[1], 'o', 
+                   color=color, markersize=size, markeredgecolor='black')
+            ax.annotate(f'{i+1}', (camera.position[0], camera.position[1]),
+                       xytext=(0, 0), textcoords='offset points',
+                       fontsize=8, ha='center', va='center', color='white', fontweight='bold')
+        
+        # Surveillance area
+        rect = plt.Rectangle((self.bounds.x_min, self.bounds.y_min), 
+                            self.bounds.x_max - self.bounds.x_min,
+                            self.bounds.y_max - self.bounds.y_min,
+                            fill=False, edgecolor='green', linewidth=2)
+        ax.add_patch(rect)
+        
+        ax.set_title('Complete Sensor Array\n(Camera 1 highlighted)', fontsize=12, fontweight='bold')
+        ax.set_xlabel('X (meters)', fontsize=10)
+        ax.set_ylabel('Y (meters)', fontsize=10)
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal')
+
+    def _plot_detection_explanation(self, ax):
+        """Plot explanation of what detection range means"""
+        ax.axis('off')
+        
+        explanation_text = """
+DETECTION RANGE EXPLAINED
+
+The detection range plot shows how far 
+each camera can detect a drone target 
+at different angles.
+
+KEY FACTORS:
+• Field of View Limits
+  Only within camera's FOV cone
+  
+• Distance Attenuation  
+  Atmospheric effects reduce range
+  
+• Target Size Requirements
+  Minimum apparent size needed
+  
+• Environmental Conditions
+  Weather, lighting, humidity
+  
+• Sensor Limitations
+  Resolution, noise thresholds
+
+INTERPRETING THE PLOT:
+• Peak = Optimal detection conditions
+• Zero = Outside detection capability  
+• Variations = Real-world limitations
+
+This profile represents ALL cameras
+in the array (similar specifications).
+        """
+        
+        ax.text(0.05, 0.95, explanation_text, transform=ax.transAxes,
+                fontsize=10, verticalalignment='top',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.9))
+
+    def _plot_array_performance_summary(self, ax, elevation_slice):
+        """Plot summary statistics for the entire array"""
+        
+        # Calculate coverage statistics
+        total_cameras = len(self.cameras)
+        total_max_range = sum(cam.spec.max_range for cam in self.cameras)
+        avg_max_range = total_max_range / total_cameras if total_cameras > 0 else 0
+        
+        # Test coverage at center point
+        center_point = np.array([(self.bounds.x_min + self.bounds.x_max)/2,
+                                (self.bounds.y_min + self.bounds.y_max)/2,
+                                elevation_slice])
+        
+        cameras_covering_center = 0
+        for camera in self.cameras:
+            detection = self._check_detection_feasibility(camera, center_point)
+            if detection['detectable']:
+                cameras_covering_center += 1
+        
+        redundancy = cameras_covering_center / total_cameras if total_cameras > 0 else 0
+        
+        # Create bar chart of key metrics
+        metrics = ['Total\nCameras', 'Avg Max\nRange (km)', 'Center Point\nRedundancy', 'Array\nCoverage']
+        values = [total_cameras, avg_max_range/1000, redundancy, 0.85]  # 0.85 is estimated coverage
+        colors = ['blue', 'green', 'orange', 'red']
+        
+        bars = ax.bar(metrics, values, color=colors, alpha=0.7)
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, values):
+            height = bar.get_height()
+            if metrics[bars.index(bar)] == 'Total\nCameras':
+                label = f'{int(value)}'
+            elif 'Range' in metrics[bars.index(bar)]:
+                label = f'{value:.1f}'
+            else:
+                label = f'{value:.2f}'
             
-            # Better spacing to prevent clipping - THIS IS THE KEY FIX
-            plt.tight_layout(pad=2.0)
-            plt.subplots_adjust(left=0.08, right=0.96, top=0.92, bottom=0.12, wspace=0.3)
-            
-            return fig
+            ax.text(bar.get_x() + bar.get_width()/2., height + max(values)*0.01,
+                    label, ha='center', va='bottom', fontweight='bold')
+        
+        ax.set_title('Array Performance Summary', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Normalized Values', fontsize=10)
+
 
 def create_standard_sensor_array(simulation_bounds, array_type: str = "perimeter") -> VirtualSensorArray:
     """Create a standard sensor array configuration"""

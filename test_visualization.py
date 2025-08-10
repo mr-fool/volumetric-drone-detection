@@ -1,6 +1,7 @@
 """
 Enhanced visualization test with customizable parameters
 Saves images to 'images' folder with drone count and attack pattern options
+NOW INCLUDES: Detection range analysis options while preserving all original functionality
 """
 
 import sys
@@ -174,8 +175,146 @@ def test_sensor_detection_basic():
         print(f"ERROR in sensor detection: {e}")
         return False
 
+# NEW DETECTION RANGE ANALYSIS FUNCTIONS
+def test_all_camera_detection_ranges():
+    """Generate individual detection range plots for each camera"""
+    print("Testing individual camera detection range visualization...")
+    
+    try:
+        images_dir = ensure_images_folder()
+        
+        bounds = SimulationBounds()
+        sensor_array = create_standard_sensor_array(bounds, "perimeter")
+        
+        # Check if the new methods exist
+        if not hasattr(sensor_array, 'visualize_all_camera_detection_ranges'):
+            print("ERROR: Detection range analysis methods not found in sensor_simulation.py")
+            print("Please add the enhanced methods to your VirtualSensorArray class first.")
+            return False, []
+        
+        # Generate individual camera plots
+        saved_files = sensor_array.visualize_all_camera_detection_ranges(
+            elevation_slice=200.0, 
+            output_dir=images_dir
+        )
+        
+        print(f"SUCCESS: Generated {len(saved_files)} detection range plots")
+        for filepath in saved_files:
+            print(f"  Saved: {os.path.basename(filepath)}")
+        
+        return True, saved_files
+        
+    except Exception as e:
+        print(f"ERROR in individual camera detection range visualization: {e}")
+        print("Make sure you've added the enhanced methods to sensor_simulation.py")
+        import traceback
+        traceback.print_exc()
+        return False, []
+
+def test_representative_camera_explanation():
+    """Generate single comprehensive plot explaining detection range concept"""
+    print("Testing representative camera explanation visualization...")
+    
+    try:
+        images_dir = ensure_images_folder()
+        
+        bounds = SimulationBounds()
+        sensor_array = create_standard_sensor_array(bounds, "perimeter")
+        
+        # Check if the new methods exist
+        if not hasattr(sensor_array, 'visualize_sensor_coverage_single_representative'):
+            print("ERROR: Representative visualization method not found in sensor_simulation.py")
+            print("Please add the enhanced methods to your VirtualSensorArray class first.")
+            return False, None
+        
+        # Create comprehensive explanation plot
+        fig = sensor_array.visualize_sensor_coverage_single_representative()
+        
+        filename = 'detection_range_explanation.png'
+        filepath = os.path.join(images_dir, filename)
+        fig.savefig(filepath, dpi=150, bbox_inches='tight')
+        
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+        
+        print(f"SUCCESS: Detection range explanation saved as {filepath}")
+        return True, filepath
+        
+    except Exception as e:
+        print(f"ERROR in detection range explanation: {e}")
+        print("Make sure you've added the enhanced methods to sensor_simulation.py")
+        import traceback
+        traceback.print_exc()
+        return False, None
+
+def run_detection_range_analysis(analysis_type='representative'):
+    """
+    Run detection range analysis with different visualization options
+    
+    Args:
+        analysis_type: 'individual', 'representative', or 'both'
+    """
+    print("DETECTION RANGE ANALYSIS")
+    print(f"Analysis type: {analysis_type}")
+    print("=" * 60)
+    
+    results = {}
+    generated_files = []
+    
+    if analysis_type in ['individual', 'both']:
+        print("\n1. GENERATING INDIVIDUAL CAMERA PLOTS...")
+        success, files = test_all_camera_detection_ranges()
+        results['individual_cameras'] = success
+        if files:
+            generated_files.extend(files)
+            
+        print(f"\nGenerated {len(files) if files else 0} individual camera plots")
+    
+    if analysis_type in ['representative', 'both']:
+        print("\n2. GENERATING REPRESENTATIVE EXPLANATION...")
+        success, filepath = test_representative_camera_explanation()
+        results['representative'] = success
+        if filepath:
+            generated_files.append(filepath)
+    
+    # Also generate the original sensor coverage for comparison
+    print("\n3. GENERATING ORIGINAL SENSOR COVERAGE...")
+    success, filepath = test_sensor_coverage_visualization()
+    results['original_coverage'] = success
+    if filepath:
+        generated_files.append(filepath)
+    
+    print("\n" + "=" * 60)
+    print("DETECTION RANGE ANALYSIS SUMMARY")
+    print("=" * 60)
+    
+    for analysis_name, success in results.items():
+        status = "PASS" if success else "FAIL"
+        print(f"{analysis_name}: {status}")
+    
+    if generated_files:
+        print(f"\nGenerated {len(generated_files)} files in 'images' folder:")
+        for filepath in generated_files:
+            print(f"  - {os.path.basename(filepath)}")
+        
+        print("\nRECOMMENDATIONS:")
+        if analysis_type == 'individual':
+            print("• Use individual camera plots for detailed technical analysis")
+            print("• Each camera shows its unique detection profile")
+            print("• Good for troubleshooting specific camera performance")
+        elif analysis_type == 'representative':
+            print("• Use representative plot for audience education")
+            print("• Explains detection range concept clearly")
+            print("• Shows how environmental factors affect detection")
+        else:
+            print("• Individual plots: Technical/engineering audience")
+            print("• Representative plot: General/executive audience")
+            print("• Original coverage: System overview")
+    
+    return results
+
 def run_enhanced_visualization_tests(num_drones=8, attack_pattern='coordinated', duration=15.0, drone_type='small'):
-    """Run visualization tests with custom parameters"""
+    """Run visualization tests with custom parameters - ORIGINAL FUNCTIONALITY PRESERVED"""
     print("ENHANCED VISUALIZATION AND SENSOR SIMULATION TESTS")
     print("Python version:", sys.version.split()[0])
     print("=" * 60)
@@ -242,15 +381,16 @@ def run_enhanced_visualization_tests(num_drones=8, attack_pattern='coordinated',
     if generated_files:
         print(f"\nGenerated files in 'images' folder:")
         for filepath in generated_files:
-            print(f"  - {filepath}")
+            print(f"  - {os.path.basename(filepath)}")
         print("\nVerify that axis labels are not cut off in these images")
     
     return test_results
 
 def main():
-    """Main function with command line argument parsing"""
+    """Main function with enhanced command line argument parsing"""
     parser = argparse.ArgumentParser(description='Enhanced Visualization Test for Drone Detection System')
     
+    # ORIGINAL ARGUMENTS - PRESERVED
     parser.add_argument('--drones', '-d', type=int, default=8,
                        help='Number of drones to simulate (default: 8)')
     
@@ -267,6 +407,15 @@ def main():
     parser.add_argument('--list-patterns', action='store_true',
                        help='List available attack patterns and exit')
     
+    # NEW DETECTION RANGE ARGUMENTS
+    parser.add_argument('--detection-analysis', '-da', type=str, 
+                       choices=['individual', 'representative', 'both'], 
+                       default=None,
+                       help='Run detection range analysis (individual=8 separate plots, representative=single explanatory plot, both=all)')
+    
+    parser.add_argument('--detection-only', action='store_true',
+                       help='Only run detection range analysis, skip trajectory visualization')
+    
     args = parser.parse_args()
     
     if args.list_patterns:
@@ -281,22 +430,52 @@ def main():
         print("  surveillance - Maps to PERIMETER_SWEEP")
         return
     
-    # Validate parameters
-    if args.drones < 1 or args.drones > 50:
-        print("ERROR: Number of drones must be between 1 and 50")
-        return
+    # Run detection range analysis if requested
+    if args.detection_analysis:
+        run_detection_range_analysis(args.detection_analysis)
+        if args.detection_only:
+            return
     
-    if args.duration < 1.0 or args.duration > 60.0:
-        print("ERROR: Duration must be between 1.0 and 60.0 seconds")
-        return
-    
-    # Run tests with custom parameters
-    run_enhanced_visualization_tests(
-        num_drones=args.drones,
-        attack_pattern=args.pattern,
-        duration=args.duration,
-        drone_type=args.type
-    )
+    # Run regular tests if not detection-only
+    if not args.detection_only:
+        # Validate parameters
+        if args.drones < 1 or args.drones > 50:
+            print("ERROR: Number of drones must be between 1 and 50")
+            return
+        
+        if args.duration < 1.0 or args.duration > 60.0:
+            print("ERROR: Duration must be between 1.0 and 60.0 seconds")
+            return
+        
+        # Run tests with custom parameters
+        run_enhanced_visualization_tests(
+            num_drones=args.drones,
+            attack_pattern=args.pattern,
+            duration=args.duration,
+            drone_type=args.type
+        )
 
 if __name__ == "__main__":
     main()
+
+"""
+USAGE EXAMPLES - ALL ORIGINAL FUNCTIONALITY PRESERVED:
+
+# Original trajectory visualizations still work exactly the same:
+python test_visualization.py --drones 15 --pattern evasive --type small
+python test_visualization.py --drones 25 --pattern swarm --type small
+python test_visualization.py --drones 20 --pattern formation --type small
+python test_visualization.py --drones 12 --pattern perimeter --type small
+python test_visualization.py --list-patterns
+
+# NEW: Detection range analysis options:
+python test_visualization.py --detection-analysis individual
+python test_visualization.py --detection-analysis representative
+python test_visualization.py --detection-analysis both
+
+# NEW: Combine trajectory + detection analysis:
+python test_visualization.py --drones 15 --pattern evasive --detection-analysis representative
+
+# NEW: Only detection analysis, skip trajectories:
+python test_visualization.py --detection-analysis both --detection-only
+"""
