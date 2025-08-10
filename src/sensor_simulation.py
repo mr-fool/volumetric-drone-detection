@@ -513,69 +513,96 @@ class VirtualSensorArray:
         }
     
     def visualize_sensor_coverage(self, elevation_slice: float = 200.0) -> plt.Figure:
-        """Visualize sensor array coverage at specified elevation"""
-        
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-        
-        # Plot 1: Sensor positions and coverage areas
-        ax1.set_xlim(self.bounds.x_min, self.bounds.x_max)
-        ax1.set_ylim(self.bounds.y_min, self.bounds.y_max)
-        
-        for camera in self.cameras:
-            # Plot camera position
-            ax1.plot(camera.position[0], camera.position[1], 'ro', markersize=8)
-            ax1.annotate(camera.camera_id, 
-                        (camera.position[0], camera.position[1]),
-                        xytext=(5, 5), textcoords='offset points',
-                        fontsize=8)
+            """Visualize sensor array coverage at specified elevation - FIXED VERSION"""
             
-            # Draw field of view cone (simplified 2D projection)
-            yaw = np.radians(camera.orientation[0])
-            h_fov = np.radians(camera.spec.field_of_view[0])
+            # Larger figure with better proportions
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
             
-            # FOV boundary rays
-            angles = [yaw - h_fov/2, yaw + h_fov/2]
-            for angle in angles:
-                end_x = camera.position[0] + camera.spec.max_range * np.cos(angle)
-                end_y = camera.position[1] + camera.spec.max_range * np.sin(angle)
-                ax1.plot([camera.position[0], end_x], 
-                        [camera.position[1], end_y], 'b--', alpha=0.3)
-        
-        ax1.set_xlabel('X (meters)')
-        ax1.set_ylabel('Y (meters)')
-        ax1.set_title('Sensor Array Layout and Coverage')
-        ax1.grid(True, alpha=0.3)
-        ax1.set_aspect('equal')
-        
-        # Plot 2: Detection range vs angle for first camera
-        if self.cameras:
-            camera = self.cameras[0]
-            angles = np.linspace(-90, 90, 181)
-            detection_ranges = []
+            # Calculate extended bounds to include all cameras
+            all_x = [cam.position[0] for cam in self.cameras] + [self.bounds.x_min, self.bounds.x_max]
+            all_y = [cam.position[1] for cam in self.cameras] + [self.bounds.y_min, self.bounds.y_max]
             
-            for angle in angles:
-                # Test detection at this angle
-                test_range = camera.spec.max_range * 0.8
-                test_x = camera.position[0] + test_range * np.cos(np.radians(angle))
-                test_y = camera.position[1] + test_range * np.sin(np.radians(angle))
-                test_pos = np.array([test_x, test_y, elevation_slice])
+            x_margin = (max(all_x) - min(all_x)) * 0.15  # 15% margin
+            y_margin = (max(all_y) - min(all_y)) * 0.15
+            
+            ax1.set_xlim(min(all_x) - x_margin, max(all_x) + x_margin)
+            ax1.set_ylim(min(all_y) - y_margin, max(all_y) + y_margin)
+            
+            print(f"DEBUG: Displaying {len(self.cameras)} cameras")
+            print(f"Camera positions: {[(cam.position[0], cam.position[1]) for cam in self.cameras]}")
+            print(f"Plot bounds: X=[{min(all_x)-x_margin:.0f}, {max(all_x)+x_margin:.0f}], Y=[{min(all_y)-y_margin:.0f}, {max(all_y)+y_margin:.0f}]")
+            
+            for i, camera in enumerate(self.cameras):
+                # Larger camera markers
+                ax1.plot(camera.position[0], camera.position[1], 'ro', markersize=12, 
+                        markeredgecolor='black', markeredgewidth=1.5)
                 
-                detection = self._check_detection_feasibility(camera, test_pos)
-                if detection['detectable']:
-                    detection_ranges.append(detection['range'])
-                else:
-                    detection_ranges.append(0)
+                # Better camera labels with background
+                ax1.annotate(f'Cam{i+1}', 
+                            (camera.position[0], camera.position[1]),
+                            xytext=(10, 10), textcoords='offset points',
+                            fontsize=11, fontweight='bold',
+                            bbox=dict(boxstyle='round,pad=0.4', facecolor='yellow', alpha=0.8),
+                            ha='left', va='bottom')
+                
+                # Draw field of view cone (simplified 2D projection)
+                yaw = np.radians(camera.orientation[0])
+                h_fov = np.radians(camera.spec.field_of_view[0])
+                fov_range = camera.spec.max_range * 0.4  # Shorter lines for clarity
+                
+                # FOV boundary rays
+                angles = [yaw - h_fov/2, yaw + h_fov/2]
+                for angle in angles:
+                    end_x = camera.position[0] + fov_range * np.cos(angle)
+                    end_y = camera.position[1] + fov_range * np.sin(angle)
+                    ax1.plot([camera.position[0], end_x], 
+                            [camera.position[1], end_y], 'b--', alpha=0.7, linewidth=2)
             
-            ax2.plot(angles, detection_ranges, 'g-', linewidth=2)
-            ax2.set_xlabel('Angle (degrees)')
-            ax2.set_ylabel('Detection Range (meters)')
-            ax2.set_title(f'Detection Range Profile - {camera.camera_id}')
-            ax2.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        # Fix axis label clipping issue
-        fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
-        return fig
+            # Draw surveillance area boundary as a rectangle
+            rect = plt.Rectangle((self.bounds.x_min, self.bounds.y_min), 
+                                self.bounds.x_max - self.bounds.x_min,
+                                self.bounds.y_max - self.bounds.y_min,
+                                fill=False, edgecolor='green', linewidth=3, label='Surveillance Area')
+            ax1.add_patch(rect)
+            
+            ax1.set_xlabel('X (meters)', fontsize=12)
+            ax1.set_ylabel('Y (meters)', fontsize=12)
+            ax1.set_title(f'Sensor Array Layout ({len(self.cameras)} cameras)', fontsize=14, fontweight='bold')
+            ax1.grid(True, alpha=0.3)
+            ax1.set_aspect('equal')
+            ax1.legend()
+            
+            # Plot 2: Detection range vs angle for first camera
+            if self.cameras:
+                camera = self.cameras[0]
+                angles = np.linspace(-90, 90, 181)
+                detection_ranges = []
+                
+                for angle in angles:
+                    # Test detection at this angle
+                    test_range = camera.spec.max_range * 0.8
+                    test_x = camera.position[0] + test_range * np.cos(np.radians(angle))
+                    test_y = camera.position[1] + test_range * np.sin(np.radians(angle))
+                    test_pos = np.array([test_x, test_y, elevation_slice])
+                    
+                    detection = self._check_detection_feasibility(camera, test_pos)
+                    if detection['detectable']:
+                        detection_ranges.append(detection['range'])
+                    else:
+                        detection_ranges.append(0)
+                
+                ax2.plot(angles, detection_ranges, 'g-', linewidth=2)
+                ax2.fill_between(angles, detection_ranges, alpha=0.3, color='green')
+                ax2.set_xlabel('Angle (degrees)', fontsize=12)
+                ax2.set_ylabel('Detection Range (meters)', fontsize=12)
+                ax2.set_title(f'Detection Range Profile - {camera.camera_id}', fontsize=14, fontweight='bold')
+                ax2.grid(True, alpha=0.3)
+            
+            # Better spacing to prevent clipping - THIS IS THE KEY FIX
+            plt.tight_layout(pad=2.0)
+            plt.subplots_adjust(left=0.08, right=0.96, top=0.92, bottom=0.12, wspace=0.3)
+            
+            return fig
 
 def create_standard_sensor_array(simulation_bounds, array_type: str = "perimeter") -> VirtualSensorArray:
     """Create a standard sensor array configuration"""
