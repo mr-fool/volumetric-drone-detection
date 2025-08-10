@@ -205,7 +205,7 @@ The system generates comprehensive visualizations of both sensor coverage and dr
 ### Sensor Array Coverage
 
 The sensor array visualization shows the 8-camera perimeter configuration with overlapping fields of view, providing comprehensive coverage of the surveillance area.
-<img width="2088" height="934" alt="sensor_coverage" src="https://github.com/user-attachments/assets/b0f8dd3d-bc42-4c91-93a2-330867af5e59" />
+<img width="2246" height="1091" alt="sensor_coverage" src="https://github.com/user-attachments/assets/35f2335a-e719-47bb-b478-36dc8883febc" />
 
 ### Drone Flight Patterns
 
