@@ -211,6 +211,16 @@ The sensor array visualization shows the 8-camera perimeter configuration with o
 ### Detection Range Analysis
 
 The detection range analysis system provides detailed insights into camera performance and coverage capabilities. This advanced feature helps optimize sensor placement and understand detection limitations under various conditions.
+<img width="2225" height="848" alt="camera_01_detection_range" src="https://github.com/user-attachments/assets/a75ba7e9-46fd-437e-9a5c-d6af8c1caa35" />
+<img width="2225" height="848" alt="camera_02_detection_range" src="https://github.com/user-attachments/assets/6745f90c-4dc8-4de7-a1f9-5199c372d6b3" />
+<img width="2225" height="848" alt="camera_03_detection_range" src="https://github.com/user-attachments/assets/f9966588-5641-46f9-b258-87acb3e21086" />
+<img width="2225" height="848" alt="camera_04_detection_range" src="https://github.com/user-attachments/assets/bd1c720e-244c-4cd2-b977-b5fdf4164662" />
+<img width="2225" height="848" alt="camera_05_detection_range" src="https://github.com/user-attachments/assets/13387276-5fe7-486b-98ea-4ca2ca7b3304" />
+<img width="2225" height="848" alt="camera_06_detection_range" src="https://github.com/user-attachments/assets/82888139-009a-495b-a854-29a6911a1124" />
+<img width="2225" height="848" alt="camera_07_detection_range" src="https://github.com/user-attachments/assets/638631ce-0a1d-4e36-9347-e87fa5e9ad08" />
+<img width="2225" height="848" alt="camera_08_detection_range" src="https://github.com/user-attachments/assets/4a8d07d9-6e61-45bd-9992-c9111dd9f168" />
+<img width="2647" height="1440" alt="detection_range_explanation" src="https://github.com/user-attachments/assets/252f6134-eeb9-4ba3-bd85-2b096da485c5" />
+<img width="2984" height="1475" alt="detection_range_summary_all_cameras" src="https://github.com/user-attachments/assets/4462a42f-9b25-489f-bb76-2777ad64d6d1" />
 
 #### Detection Range Concept
 
