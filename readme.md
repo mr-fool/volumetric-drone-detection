@@ -516,8 +516,6 @@ volumetric-drone-detection/
 ├── README.md                          # This file
 ├── requirements.txt                   # Python dependencies
 ├── .gitignore                        # Git ignore rules
-├── file_tree.txt                     # Current directory structure
-├── Get-FileTree.ps1                  # PowerShell script for directory listing
 ├── images/                           # Generated visualization outputs
 │   ├── sensor_coverage.png           # Sensor array coverage visualization
 │   ├── trajectory_*.png              # Drone trajectory visualizations
@@ -844,14 +842,13 @@ This framework is designed for academic research in:
 
 ### Academic Research Applications
 
-#### Counter-UAS Development
+#### Multi-Drone Detection Research
 ```bash
-# Analyze detection capabilities for different threat scenarios
+# Analyze detection capabilities for different swarm scenarios
 python test_visualization.py --drones 20 --pattern coordinated --detection-analysis both
 
-# Study sensor array effectiveness
+# Study sensor array effectiveness for surveillance applications
 python test_visualization.py --detection-analysis individual --detection-only
-```
 
 #### Sensor Optimization Studies
 ```bash
