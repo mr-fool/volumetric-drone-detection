@@ -1,6 +1,6 @@
 # Volumetric Motion Detection for Multi-Drone Swarm Engagement
 
-A theoretical framework and simulation system for real-time volumetric detection and kinetic engagement coordination of drone swarms. This research implements novel integration algorithms between 3D motion detection and engagement systems for counter-UAS applications.
+Simulation framework for evaluating volumetric detection algorithms in multi-drone scenarios. Includes parallel processing optimization, environmental effects modeling, and comprehensive validation methodology for desktop-class hardware deployment.
 
 ## Overview
 
