@@ -71,3 +71,7 @@ minimal_test_results.json
 safe_integration_results.json
 *.zip
 *.pdf
+statistical_analysis_report_20250828_080158.txt
+statistical_analysis_report_20250828_080353.txt
+statistical_validation_results_20250828_075931.json
+*.json
