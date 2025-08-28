@@ -67,7 +67,48 @@ class StatisticalValidator:
         # Statistical data storage
         self.raw_data = defaultdict(list)
         self.processed_statistics = {}
+    
+    def measure_memory_scaling(self, test_resolutions: List[float] = None) -> Dict[float, Dict]:
+        """
+        Test memory usage across different voxel resolutions
+        """
+        if test_resolutions is None:
+            test_resolutions = [2.0, 3.0, 5.0, 7.0, 10.0, 15.0]
         
+        memory_results = {}
+        
+        for resolution in test_resolutions:
+            try:
+                # Calculate voxel count
+                x_range = self.bounds.x_max - self.bounds.x_min
+                y_range = self.bounds.y_max - self.bounds.y_min  
+                z_range = self.bounds.z_max - self.bounds.z_min
+                
+                nx = int(np.ceil(x_range / resolution))
+                ny = int(np.ceil(y_range / resolution))
+                nz = int(np.ceil(z_range / resolution))
+                total_voxels = nx * ny * nz
+                
+                # Estimate memory (3 arrays: occupancy, confidence, timestamps)
+                memory_mb = total_voxels * 3 * 8 / (1024 * 1024)  # 8 bytes per float64
+                
+                # Test if resolution is practically feasible
+                feasible = memory_mb < 500  # 500MB threshold
+                
+                memory_results[resolution] = {
+                    'voxels': total_voxels,
+                    'memory_mb': memory_mb,
+                    'feasible': feasible
+                }
+                
+            except Exception as e:
+                memory_results[resolution] = {
+                    'error': str(e),
+                    'feasible': False
+                }
+        
+        return memory_results
+
     def calculate_confidence_interval(self, data: np.ndarray, 
                                     confidence_level: float = None,
                                     method: str = 'bootstrap') -> StatisticalResults:

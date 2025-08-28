@@ -35,7 +35,7 @@ class StatisticalAnalyzer:
         """
         ci_lower, ci_upper = ci_tuple
         margin_of_error = ci_upper - mean
-        return f"{mean:.{precision}f} ± {margin_of_error:.{precision}f}"
+        return f"{mean:.{precision}f} $\\pm$ {margin_of_error:.{precision}f}"
     
     def generate_processing_time_table(self) -> str:
         """
