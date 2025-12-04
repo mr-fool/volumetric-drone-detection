@@ -116,8 +116,8 @@ def test_trajectory_visualization_custom(num_drones=8, attack_pattern='coordinat
         return False, None
 
 def test_sensor_coverage_visualization():
-    """Test sensor array coverage visualization"""
-    print("Testing sensor coverage visualization...")
+    """Test sensor array coverage visualization - FIXED FOR JDMS REVISION"""
+    print("Testing sensor coverage visualization (FIXED - single panel)...")
     
     try:
         images_dir = ensure_images_folder()
@@ -125,21 +125,149 @@ def test_sensor_coverage_visualization():
         bounds = SimulationBounds()
         sensor_array = create_standard_sensor_array(bounds, "perimeter")
         
-        # Create coverage visualization
-        fig = sensor_array.visualize_sensor_coverage()
-        filename = 'sensor_coverage.png'
+        # Create SINGLE PANEL coverage visualization
+        # This addresses reviewer concern about confusing Figure 2 second panel
+        fig = create_single_panel_sensor_coverage(sensor_array, bounds)
+        
+        filename = 'sensor_coverage_fixed.png'
         filepath = os.path.join(images_dir, filename)
-        fig.savefig(filepath, dpi=150, bbox_inches='tight')
+        fig.savefig(filepath, dpi=300, bbox_inches='tight')
         
         import matplotlib.pyplot as plt
         plt.close(fig)
         
-        print(f"SUCCESS: Sensor coverage visualization saved as {filepath}")
+        print(f"SUCCESS: Fixed sensor coverage visualization saved as {filepath}")
+        print("  NOTE: This is a single-panel figure addressing JDMS reviewer feedback")
+        print("  Shows: 8 cameras, 60deg FOV, 2000m max range, perimeter placement")
         return True, filepath
         
     except Exception as e:
         print(f"ERROR in sensor coverage visualization: {e}")
+        import traceback
+        traceback.print_exc()
         return False, None
+
+
+def create_single_panel_sensor_coverage(sensor_array, bounds):
+    """
+    Create single-panel sensor coverage figure for JDMS revision
+    
+    Addresses reviewer feedback: "Figure 2 (second panel) is confusing"
+    Solution: Single clear panel showing camera positions, FOV, and detection range
+    
+    Key specifications to display clearly:
+    - 8 cameras in perimeter configuration
+    - 60 degree (H) x 45 degree (V) field of view
+    - 2000m maximum detection range
+    - 600m radius placement at 100m elevation
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    import numpy as np
+    
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    
+    # Plot surveillance area boundary
+    area_x = [bounds.x_min, bounds.x_max, bounds.x_max, bounds.x_min, bounds.x_min]
+    area_y = [bounds.y_min, bounds.y_min, bounds.y_max, bounds.y_max, bounds.y_min]
+    ax.plot(area_x, area_y, 'k-', linewidth=2, label='Surveillance Area (1 km x 1 km)')
+    
+    # Get camera positions and specs
+    camera_positions = []
+    fov_h = None
+    max_range = None
+    
+    for camera in sensor_array.cameras:
+        pos = camera.position
+        camera_positions.append(pos)
+        if fov_h is None:
+            fov_h = camera.spec.field_of_view[0]  # Horizontal FOV
+            max_range = camera.spec.max_range
+    
+    # Plot each camera with detection range circle and FOV cone
+    colors = plt.cm.tab10(np.linspace(0, 1, len(sensor_array.cameras)))
+    
+    for idx, camera in enumerate(sensor_array.cameras):
+        pos = camera.position
+        orientation = camera.orientation
+        
+        # Plot camera position
+        ax.plot(pos[0], pos[1], 'o', color=colors[idx], markersize=12, 
+                markeredgecolor='black', markeredgewidth=1.5,
+                label=f'Camera {idx+1}' )
+        
+        # Plot detection range circle (semi-transparent)
+        circle = plt.Circle((pos[0], pos[1]), max_range, 
+                           color=colors[idx], alpha=0.08, linewidth=0)
+        ax.add_patch(circle)
+        
+        # Plot FOV cone
+        yaw = np.radians(orientation[0])
+        fov_rad = np.radians(fov_h)
+        
+        # FOV cone edges
+        angle1 = yaw - fov_rad/2
+        angle2 = yaw + fov_rad/2
+        
+        # Draw FOV lines to max range
+        x1 = pos[0] + max_range * np.cos(angle1)
+        y1 = pos[1] + max_range * np.sin(angle1)
+        x2 = pos[0] + max_range * np.cos(angle2)
+        y2 = pos[1] + max_range * np.sin(angle2)
+        
+        ax.plot([pos[0], x1], [pos[1], y1], '--', 
+                color=colors[idx], linewidth=1.5, alpha=0.6)
+        ax.plot([pos[0], x2], [pos[1], y2], '--', 
+                color=colors[idx], linewidth=1.5, alpha=0.6)
+        
+        # Fill FOV cone (very transparent)
+        angles = np.linspace(angle1, angle2, 30)
+        cone_x = [pos[0]] + [pos[0] + max_range * np.cos(a) for a in angles] + [pos[0]]
+        cone_y = [pos[1]] + [pos[1] + max_range * np.sin(a) for a in angles] + [pos[1]]
+        ax.fill(cone_x, cone_y, color=colors[idx], alpha=0.05)
+    
+    # Add center marker
+    center_x = (bounds.x_min + bounds.x_max) / 2
+    center_y = (bounds.y_min + bounds.y_max) / 2
+    ax.plot(center_x, center_y, 'k+', markersize=15, markeredgewidth=2)
+    ax.text(center_x + 30, center_y + 30, 'Area Center', fontsize=10, 
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    # Add scale bar for detection range
+    scale_x = bounds.x_min + 100
+    scale_y = bounds.y_min + 100
+    ax.plot([scale_x, scale_x + 500], [scale_y, scale_y], 'k-', linewidth=3)
+    ax.text(scale_x + 250, scale_y - 50, '500m', fontsize=10, ha='center',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    # Formatting
+    ax.set_xlabel('X Position (meters)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Y Position (meters)', fontsize=12, fontweight='bold')
+    ax.set_title('Sensor Array Configuration (Top View)\n8 Cameras, 60deg FOV, 2000m Max Range', 
+                fontsize=14, fontweight='bold', pad=20)
+    
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.legend(loc='upper right', fontsize=8, framealpha=0.9, ncol=2)
+    
+    # Add text box with specifications
+    spec_text = (
+        'SENSOR SPECIFICATIONS:\n'
+        f'Number of Cameras: {len(sensor_array.cameras)}\n'
+        f'Field of View: {fov_h:.0f}deg (H) x 45deg (V)\n'
+        f'Max Range: {max_range:.0f}m\n'
+        f'Placement: Perimeter (600m radius)\n'
+        f'Elevation: 100m\n'
+        'Type: Visible Spectrum Optical'
+    )
+    
+    ax.text(0.02, 0.98, spec_text, transform=ax.transAxes, 
+            fontsize=10, verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9, pad=10))
+    
+    plt.tight_layout()
+    return fig
+
 
 def test_sensor_detection_basic():
     """Basic test of sensor detection functionality"""

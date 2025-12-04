@@ -1,0 +1,88 @@
+STATISTICAL VALIDATION REPORT
+Generated on: 2025-08-28 20:27:07
+================================================================================
+
+VALIDATION CONFIGURATION:
+- Total Monte Carlo runs: 100
+- Successful runs: 100
+- Confidence level: 95%
+- Parallel execution: True
+
+STATISTICAL VALIDATION RESULTS
+==================================================
+
+Monte Carlo validation employed 100 randomized scenarios with 100 successful executions, providing 95% confidence intervals through bootstrap resampling.
+
+Processing Time Analysis:
+- Triangulation: μ = 1308.4 $\pm$ 86.3 ms (95% CI, n=769)
+- Space carving: μ = 36.8 $\pm$ 1.4 ms (95% CI, n=769)
+- Hybrid: μ = 1447.8 $\pm$ 100.6 ms (95% CI, n=769)
+
+Detection Count Analysis:
+- Triangulation: μ = 59.2 $\pm$ 2.4 targets (95% CI, n=769)
+- Space carving: μ = 10.9 $\pm$ 0.2 targets (95% CI, n=769)
+- Hybrid: μ = 59.2 $\pm$ 2.4 targets (95% CI, n=769)
+
+Statistical Comparisons:
+- Space carving demonstrates 39.3x faster processing than hybrid
+- Hybrid detects 441% more targets than space carving
+
+Environmental Correlation Analysis:
+- visibility confidence: r = 0.496
+- environmental detection rate: r = -0.114
+
+LATEX TABLES FOR ACADEMIC PUBLICATION:
+==================================================
+
+Processing Time Table:
+\begin{table}[htbp]
+\centering
+\caption{Processing Time Analysis by Detection Method}
+\begin{tabular}{lcccc}
+\toprule
+Method & Mean (ms) & 95\% CI (ms) & Sample Size & Std Dev \\
+\midrule
+Triangulation & 1308.4 & 1308.4 $\pm$ 86.3 & 769 & 1208.6 \\
+Space Carving & 36.8 & 36.8 $\pm$ 1.4 & 769 & 19.7 \\
+Hybrid & 1447.8 & 1447.8 $\pm$ 100.6 & 769 & 1391.7 \\
+\bottomrule
+\end{tabular}
+\label{tab:processing_times}
+\end{table}
+
+Detection Count Table:
+\begin{table}[htbp]
+\centering
+\caption{Target Detection Count Analysis by Method}
+\begin{tabular}{lcccc}
+\toprule
+Method & Mean Count & 95\% CI & Sample Size & Std Dev \\
+\midrule
+Triangulation & 59.2 & 59.2 $\pm$ 2.4 & 769 & 35.2 \\
+Space Carving & 10.9 & 10.9 $\pm$ 0.2 & 769 & 3.1 \\
+Hybrid & 59.2 & 59.2 $\pm$ 2.4 & 769 & 35.2 \\
+\bottomrule
+\end{tabular}
+\label{tab:detection_counts}
+\end{table}
+
+Correlation Analysis Table:
+\begin{table}[htbp]
+\centering
+\caption{Environmental Factor Correlation Analysis}
+\begin{tabular}{lcc}
+\toprule
+Correlation & Coefficient (r) & Interpretation \\
+\midrule
+Visibility Confidence & 0.496 & Weak \\
+Environmental Detection Rate & -0.114 & Negligible \\
+\bottomrule
+\end{tabular}
+\label{tab:correlations}
+\end{table}
+
+STATISTICAL SIGNIFICANCE ANALYSIS:
+==================================================
+triangulation_vs_space_carving_processing_time: Likely significant
+triangulation_vs_hybrid_processing_time: Not significant
+space_carving_vs_hybrid_processing_time: Likely significant
