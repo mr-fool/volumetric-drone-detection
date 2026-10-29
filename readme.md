@@ -37,8 +37,8 @@ three, and scores every output against the true drone positions using Monte Carl
 > - derives all randomness from one master seed, so results are exactly reproducible;
 > - includes tests that fail if ground truth reaches a detector or if results stop being reproducible.
 >
-> The original code is preserved in this repository's history. All results in this README come
-> from the corrected code.
+> The original code is preserved in this repository's history, and its outputs are kept in
+> `legacy_jdms_original/` for the record. All results in this README come from the corrected code.
 
 ## Corrected Validation Results
 
@@ -242,7 +242,12 @@ trajectories and camera coverage; they are not detection results.
 - `tests/test_detection_integrity.py` checks that observations carry no ground truth, that every
   method clears a basic accuracy bar with non-zero error, and that the same seed gives identical results.
 
-Processing times are the only outputs that vary between identical runs.
+On the same machine and software versions, processing times are the only outputs that vary
+between identical runs. Across operating systems or NumPy/SciPy versions, tiny floating-point
+differences can tip a few borderline voxels over the occupancy grid's threshold, so the occupancy
+grid (and, through it, hybrid) can differ in the third decimal place. A cross-platform check
+(Linux with NumPy 2.5.3 / SciPy 1.18.1 versus Windows) reproduced triangulation and space carving
+exactly; occupancy grid F1 was 0.688 versus 0.683, with no change to any conclusion.
 
 ## Project Structure
 
@@ -267,6 +272,7 @@ volumetric-drone-detection/
 ├── run_statistical_validation.py       # Convenience wrapper
 ├── make_result_figures.py              # Result figures from a validation results file
 ├── results/                            # Corrected results, report and figures (seed 42)
+├── legacy_jdms_original/               # Outputs from the original (flawed) code, kept for the record
 ├── tests/
 │   └── test_detection_integrity.py
 ├── test_visualization.py               # Trajectory and camera-coverage figures
