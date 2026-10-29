@@ -1,0 +1,158 @@
+STATISTICAL VALIDATION REPORT
+Generated on: 2026-10-29 02:21:22
+================================================================================
+
+VALIDATION CONFIGURATION:
+- Total Monte Carlo runs: 50
+- Successful runs: 50
+- Confidence level: 95%
+- Parallel execution: True
+
+STATISTICAL VALIDATION RESULTS
+==================================================
+
+Monte Carlo validation employed 50 randomized scenarios with 50 successful executions, providing 95% confidence intervals through bootstrap resampling.
+
+Processing Time Analysis:
+- Triangulation: μ = 58.0 $\pm$ 5.0 ms (95% CI, n=50)
+- Space carving: μ = 941.4 $\pm$ 161.5 ms (95% CI, n=50)
+- Occupancy grid: μ = 972.1 $\pm$ 178.2 ms (95% CI, n=50)
+- Hybrid: μ = 1608.6 $\pm$ 278.8 ms (95% CI, n=50)
+
+Detection Count Analysis:
+- Triangulation: μ = 11.1 $\pm$ 0.9 targets (95% CI, n=50)
+- Space carving: μ = 11.5 $\pm$ 1.0 targets (95% CI, n=50)
+- Occupancy grid: μ = 11.9 $\pm$ 1.1 targets (95% CI, n=50)
+- Hybrid: μ = 11.8 $\pm$ 1.0 targets (95% CI, n=50)
+
+Detection Accuracy Against Ground Truth:
+- Triangulation: precision 0.960 [0.936, 0.979]; recall 0.947 [0.924, 0.967]; recall (seen by >=2 cameras) 0.961 [0.939, 0.979]; F1 0.953 [0.930, 0.972]; mean position error (m) 2.56 [2.26, 2.85]; false positives per frame 0.51 [0.27, 0.81]
+- Space carving: precision 0.864 [0.806, 0.916]; recall 0.869 [0.815, 0.916]; recall (seen by >=2 cameras) 0.883 [0.829, 0.929]; F1 0.866 [0.808, 0.913]; mean position error (m) 3.67 [3.28, 4.11]; false positives per frame 1.87 [1.17, 2.66]
+- Occupancy grid: precision 0.680 [0.617, 0.742]; recall 0.699 [0.641, 0.754]; recall (seen by >=2 cameras) 0.710 [0.652, 0.767]; F1 0.688 [0.629, 0.745]; mean position error (m) 6.29 [5.86, 6.71]; false positives per frame 4.51 [3.46, 5.68]
+- Hybrid: precision 0.922 [0.883, 0.954]; recall 0.951 [0.928, 0.971]; recall (seen by >=2 cameras) 0.965 [0.944, 0.982]; F1 0.933 [0.904, 0.958]; mean position error (m) 2.57 [2.27, 2.89]; false positives per frame 1.21 [0.70, 1.80]
+
+Statistical Comparisons:
+- Triangulation demonstrates 27.7x faster processing than hybrid
+- Triangulation has the highest F1 (0.953); occupancy grid the lowest (0.688)
+
+Environmental Correlation Analysis:
+- triangulation:visibility vs recall: r = -0.028 (p = 0.847)
+- triangulation:noise vs recall: r = -0.568 (p = 1.66e-05)
+- triangulation:visibility vs mean error m: r = 0.004 (p = 0.975)
+- triangulation:noise vs mean error m: r = 0.919 (p = 5.28e-21)
+- space carving:visibility vs recall: r = -0.049 (p = 0.734)
+- space carving:noise vs recall: r = -0.514 (p = 0.000136)
+- space carving:visibility vs mean error m: r = -0.017 (p = 0.904)
+- space carving:noise vs mean error m: r = 0.652 (p = 2.87e-07)
+- occupancy grid:visibility vs recall: r = 0.040 (p = 0.78)
+- occupancy grid:noise vs recall: r = -0.679 (p = 5.78e-08)
+- occupancy grid:visibility vs mean error m: r = 0.035 (p = 0.81)
+- occupancy grid:noise vs mean error m: r = 0.762 (p = 1.3e-10)
+- hybrid:visibility vs recall: r = -0.066 (p = 0.65)
+- hybrid:noise vs recall: r = -0.567 (p = 1.77e-05)
+- hybrid:visibility vs mean error m: r = 0.016 (p = 0.913)
+- hybrid:noise vs mean error m: r = 0.918 (p = 6.73e-21)
+
+LATEX TABLES FOR ACADEMIC PUBLICATION:
+==================================================
+
+Processing Time Table:
+\begin{table}[htbp]
+\centering
+\caption{Processing Time Analysis by Detection Method}
+\begin{tabular}{lcccc}
+\toprule
+Method & Mean (ms) & 95\% CI (ms) & Sample Size & Std Dev \\
+\midrule
+Triangulation & 58.0 & 58.0 $\pm$ 5.0 & 50 & 17.5 \\
+Space Carving & 941.4 & 941.4 $\pm$ 161.5 & 50 & 585.6 \\
+Occupancy Grid & 972.1 & 972.1 $\pm$ 178.2 & 50 & 635.7 \\
+Hybrid & 1608.6 & 1608.6 $\pm$ 278.8 & 50 & 1016.2 \\
+\bottomrule
+\end{tabular}
+\label{tab:processing_times}
+\end{table}
+
+Detection Count Table:
+\begin{table}[htbp]
+\centering
+\caption{Target Detection Count Analysis by Method}
+\begin{tabular}{lcccc}
+\toprule
+Method & Mean Count & 95\% CI & Sample Size & Std Dev \\
+\midrule
+Triangulation & 11.1 & 11.1 $\pm$ 0.9 & 50 & 3.3 \\
+Space Carving & 11.5 & 11.5 $\pm$ 1.0 & 50 & 3.6 \\
+Occupancy Grid & 11.9 & 11.9 $\pm$ 1.1 & 50 & 4.2 \\
+Hybrid & 11.8 & 11.8 $\pm$ 1.0 & 50 & 3.9 \\
+\bottomrule
+\end{tabular}
+\label{tab:detection_counts}
+\end{table}
+
+Detection Accuracy Table:
+\begin{table}[htbp]
+\centering
+\caption{Detection Accuracy Against Ground Truth (mean [95\% CI] over scenarios)}
+\begin{tabular}{lccccc}
+\toprule
+Method & Precision & Recall & F1 & Error (m) & FP/frame \\
+\midrule
+Triangulation & 0.960 [0.936, 0.979] & 0.947 [0.924, 0.967] & 0.953 [0.930, 0.972] & 2.56 [2.26, 2.85] & 0.51 [0.27, 0.81] \\
+Space Carving & 0.864 [0.806, 0.916] & 0.869 [0.815, 0.916] & 0.866 [0.808, 0.913] & 3.67 [3.28, 4.11] & 1.87 [1.17, 2.66] \\
+Occupancy Grid & 0.680 [0.617, 0.742] & 0.699 [0.641, 0.754] & 0.688 [0.629, 0.745] & 6.29 [5.86, 6.71] & 4.51 [3.46, 5.68] \\
+Hybrid & 0.922 [0.883, 0.954] & 0.951 [0.928, 0.971] & 0.933 [0.904, 0.958] & 2.57 [2.27, 2.89] & 1.21 [0.70, 1.80] \\
+\bottomrule
+\end{tabular}
+\label{tab:accuracy}
+\end{table}
+
+Correlation Analysis Table:
+\begin{table}[htbp]
+\centering
+\caption{Environmental Factor Correlation Analysis}
+\begin{tabular}{lcc}
+\toprule
+Correlation & Coefficient (r) & Interpretation \\
+\midrule
+Triangulation: Visibility Vs Recall & -0.028 & Negligible \\
+Triangulation: Noise Vs Recall & -0.568 & Moderate \\
+Triangulation: Visibility Vs Mean Error M & 0.004 & Negligible \\
+Triangulation: Noise Vs Mean Error M & 0.919 & Strong \\
+Space Carving: Visibility Vs Recall & -0.049 & Negligible \\
+Space Carving: Noise Vs Recall & -0.514 & Moderate \\
+Space Carving: Visibility Vs Mean Error M & -0.017 & Negligible \\
+Space Carving: Noise Vs Mean Error M & 0.652 & Moderate \\
+Occupancy Grid: Visibility Vs Recall & 0.040 & Negligible \\
+Occupancy Grid: Noise Vs Recall & -0.679 & Moderate \\
+Occupancy Grid: Visibility Vs Mean Error M & 0.035 & Negligible \\
+Occupancy Grid: Noise Vs Mean Error M & 0.762 & Moderate \\
+Hybrid: Visibility Vs Recall & -0.066 & Negligible \\
+Hybrid: Noise Vs Recall & -0.567 & Moderate \\
+Hybrid: Visibility Vs Mean Error M & 0.016 & Negligible \\
+Hybrid: Noise Vs Mean Error M & 0.918 & Strong \\
+\bottomrule
+\end{tabular}
+\label{tab:correlations}
+\end{table}
+
+STATISTICAL SIGNIFICANCE ANALYSIS:
+==================================================
+triangulation_vs_space_carving_processing_time: Significant (p = 1.78e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+triangulation_vs_space_carving_f1: Significant (p = 7.12e-07, n = 50, Wilcoxon signed-rank (paired by scenario))
+triangulation_vs_space_carving_position_error: Significant (p = 3.55e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+triangulation_vs_occupancy_grid_processing_time: Significant (p = 1.78e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+triangulation_vs_occupancy_grid_f1: Significant (p = 2.4e-09, n = 50, Wilcoxon signed-rank (paired by scenario))
+triangulation_vs_occupancy_grid_position_error: Significant (p = 1.78e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+triangulation_vs_hybrid_processing_time: Significant (p = 1.78e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+triangulation_vs_hybrid_f1: Significant (p = 0.000198, n = 50, Wilcoxon signed-rank (paired by scenario))
+triangulation_vs_hybrid_position_error: Not significant (p = 0.221, n = 50, Wilcoxon signed-rank (paired by scenario))
+space_carving_vs_occupancy_grid_processing_time: Not significant (p = 0.265, n = 50, Wilcoxon signed-rank (paired by scenario))
+space_carving_vs_occupancy_grid_f1: Significant (p = 6.26e-09, n = 50, Wilcoxon signed-rank (paired by scenario))
+space_carving_vs_occupancy_grid_position_error: Significant (p = 1.78e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+space_carving_vs_hybrid_processing_time: Significant (p = 1.78e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+space_carving_vs_hybrid_f1: Significant (p = 8.75e-07, n = 50, Wilcoxon signed-rank (paired by scenario))
+space_carving_vs_hybrid_position_error: Significant (p = 3.55e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+occupancy_grid_vs_hybrid_processing_time: Significant (p = 1.78e-15, n = 50, Wilcoxon signed-rank (paired by scenario))
+occupancy_grid_vs_hybrid_f1: Significant (p = 2.4e-09, n = 50, Wilcoxon signed-rank (paired by scenario))
+occupancy_grid_vs_hybrid_position_error: Significant (p = 1.78e-15, n = 50, Wilcoxon signed-rank (paired by scenario))

@@ -4,7 +4,7 @@ import numpy as np
 def generate_validated_memory_plot():
     """
     Generate memory scaling plot based on actual validation data
-    Removes unsupported usage categories and focuses on measured performance
+    Removes unsupported usage categories and shows computed voxel-grid size (not measured process memory)
     """
     
     # Based on your statistical validation - these resolutions were actually tested
@@ -22,8 +22,9 @@ def generate_validated_memory_plot():
         ny = int(np.ceil(area_y / res))
         nz = int(np.ceil(area_z / res))
         total_voxels = nx * ny * nz
-        # 3 arrays (occupancy, confidence, timestamps) * 8 bytes each
-        memory = total_voxels * 3 * 8 / (1024 * 1024)  # MB
+        # One float32 log-odds array (4 bytes per voxel), as allocated by VoxelGrid.
+        # This is computed grid size, not measured process memory.
+        memory = total_voxels * 4 / (1024 * 1024)  # MB
         
         voxel_counts.append(total_voxels)
         memory_mb.append(memory)
@@ -35,7 +36,7 @@ def generate_validated_memory_plot():
     fig, ax = plt.subplots(1, 1, figsize=(10, 7))
     
     # Main curve - no color coding since categories aren't validated
-    ax.loglog(resolutions, memory_mb, 'o-', linewidth=3, markersize=10, color='#1f77b4', label='Measured Memory Usage')
+    ax.loglog(resolutions, memory_mb, 'o-', linewidth=3, markersize=10, color='#1f77b4', label='Voxel grid size (float32 log-odds, computed)')
     
     # Add data point labels
     for i, (res, mem) in enumerate(zip(resolutions, memory_mb)):
@@ -50,7 +51,7 @@ def generate_validated_memory_plot():
     # Add theoretical curve
     res_theory = np.linspace(2.0, 10.0, 100)
     # Theoretical: Memory ∝ (Area/ρ)³
-    memory_theory = (area_x * area_y * area_z) / (res_theory**3) * 3 * 8 / (1024**2)
+    memory_theory = (area_x * area_y * area_z) / (res_theory**3) * 4 / (1024**2)
     ax.plot(res_theory, memory_theory, '--', color='gray', alpha=0.7, linewidth=2, 
             label='Theoretical: Memory ∝ ρ⁻³')
     
@@ -94,7 +95,7 @@ def generate_simple_validation_plot():
     # Calculate memory for 1km² area
     def calculate_memory(res):
         voxels = (1000/res) * (1000/res) * (450/res)  # x, y, z voxels
-        return voxels * 3 * 8 / (1024**2)  # MB
+        return voxels * 4 / (1024**2)  # MB
     
     memory_mb = np.array([calculate_memory(res) for res in resolutions])
     

@@ -1,160 +1,108 @@
 """
-Bayesian Occupancy Grid Update Module
+Bayesian Occupancy Grid
 
-Implements Bayesian inference algorithms for 3D occupancy grid updates
-in volumetric motion detection systems.
+Per-voxel log-odds occupancy updated from pixel detections only.
 
-Author: Research implementation for academic publication
+For each camera and each voxel in that camera's field of view:
+  - a detection inside the voxel's projected footprint is evidence the voxel is
+    occupied:            L += l_hit * confidence_scale
+  - no detection there is evidence it is free:   L += l_miss
+Voxels outside a camera's view get no update from that camera. Before each
+update the grid relaxes toward the prior (L *= decay), so evidence from earlier
+frames persists briefly while drones move on.
+
+Unlike space carving this is a soft test: one missed detection lowers the score
+instead of deleting the voxel, so a drone seen by 3 cameras and missed by 1 can
+still be reported.
+
+A passive camera gives a direction, not a distance, so the evidence for a single
+detection is spread along its whole ray; drones appear where rays from several
+cameras agree.
 """
 
+from dataclasses import dataclass, field
+from typing import List, Tuple
 import numpy as np
-from typing import List, Tuple, Set
-from dataclasses import dataclass
+
+from camera_geometry import CameraModel, candidate_voxels, view_evidence, exclusive_peaks
+from detection_types import DetectedTarget, DetectionMethod
 
 
 @dataclass
 class VoxelGrid:
-    """3D voxel grid for volumetric representation"""
-    origin: np.ndarray  # [x, y, z] origin coordinates
-    resolution: float   # meters per voxel
-    dimensions: Tuple[int, int, int]  # [nx, ny, nz] voxel count
-    occupancy_probs: np.ndarray = None  # Bayesian occupancy probabilities
-    confidence_scores: np.ndarray = None  # Detection confidence per voxel
-    last_update_time: np.ndarray = None  # Temporal decay tracking
-    
+    """3D voxel grid. log_odds is stored relative to the prior (0 = prior)."""
+    origin: np.ndarray
+    resolution: float
+    dimensions: Tuple[int, int, int]
+    log_odds: np.ndarray = None
+
     def __post_init__(self):
-        if self.occupancy_probs is None:
-            self.occupancy_probs = np.full(self.dimensions, 0.5, dtype=np.float32)
-        if self.confidence_scores is None:
-            self.confidence_scores = np.zeros(self.dimensions, dtype=np.float32)
-        if self.last_update_time is None:
-            self.last_update_time = np.zeros(self.dimensions, dtype=np.float32)
+        self.origin = np.asarray(self.origin, dtype=float)
+        if self.log_odds is None:
+            self.log_odds = np.zeros(self.dimensions, dtype=np.float32)
+
+    def centers(self, flat_idx: np.ndarray) -> np.ndarray:
+        ijk = np.column_stack(np.unravel_index(flat_idx, self.dimensions))
+        return self.origin + (ijk + 0.5) * self.resolution
 
 
 class BayesianOccupancyUpdater:
-    """Fixed Bayesian occupancy grid update algorithms"""
-    
-    def __init__(self, grid: VoxelGrid):
+    def __init__(self, grid: VoxelGrid, l_hit: float = 1.6, l_miss: float = -2.0,
+                 decay: float = 0.3, occupied_threshold: float = 2.5,
+                 min_cameras: int = 2, clamp: float = 10.0):
         self.grid = grid
-        
+        self.l_hit = l_hit
+        self.l_miss = l_miss
+        self.decay = decay
+        self.occupied_threshold = occupied_threshold
+        self.min_cameras = min_cameras
+        self.clamp = clamp
+
     def update_grid(self, observations: List, timestamp: float):
-        """Update occupancy probabilities using Bayesian inference"""
-        updated_voxels = set()
-        
-        for obs in observations:
-            if len(obs.detected_objects) == 0:
-                continue
-                
-            sensor_pos = self._get_sensor_position(obs.camera_id, obs)
-            self._update_from_sensor_observation(obs, sensor_pos, timestamp, updated_voxels)
-        
-        self._apply_targeted_temporal_decay(updated_voxels, timestamp)
-    
-    def _get_sensor_position(self, camera_id: str, observation) -> np.ndarray:
-        """Extract actual sensor position from camera ID"""
-        try:
-            cam_num = int(camera_id.split('_')[-1])
-            center_x = (self.grid.origin[0] + self.grid.dimensions[0] * self.grid.resolution) / 2
-            center_y = (self.grid.origin[1] + self.grid.dimensions[1] * self.grid.resolution) / 2
-            radius = min(self.grid.dimensions[0], self.grid.dimensions[1]) * self.grid.resolution * 0.6
-            angle = 2 * np.pi * cam_num / 8
-            cam_x = center_x + radius * np.cos(angle)
-            cam_y = center_y + radius * np.sin(angle)
-            cam_z = 100.0
-            return np.array([cam_x, cam_y, cam_z])
-        except (ValueError, IndexError):
-            return np.array([500, 500, 100])
+        """Apply one frame of evidence. Returns (obs, cams, voxel indices, evidence) for extraction."""
+        L = self.grid.log_odds
+        L *= self.decay
+        obs = [o for o in observations if o.camera is not None]
+        if not obs:
+            return obs, None, np.empty(0, dtype=np.int64), None
+        cams = [CameraModel(o.camera) for o in obs]
+        res = self.grid.resolution
+        dims = tuple(self.grid.dimensions)
+        cand = candidate_voxels(obs, cams, self.grid.origin, res, dims, self.min_cameras)
+        # voxels still carrying positive evidence from earlier frames also need
+        # this frame's (likely negative) evidence
+        prev = np.flatnonzero(L.ravel() > 0.5)
+        idx = np.union1d(cand, prev)
+        if len(idx) == 0:
+            return obs, cams, idx, None
+        X = self.grid.centers(idx)
+        ev = view_evidence(obs, cams, X, res)
+        hit, in_view, conf = ev['hit'], ev['in_view'], ev['conf']
+        scale = 0.5 + conf  # confidence in [0.1, 0.95] -> scale in [0.6, 1.45]
+        delta = (np.where(hit, self.l_hit * scale, 0.0).sum(axis=0)
+                 + np.where(in_view & ~hit, self.l_miss, 0.0).sum(axis=0))
+        flat = L.ravel()
+        flat[idx] = np.clip(flat[idx] + delta, -self.clamp, self.clamp)
+        return obs, cams, idx, ev
 
-    def _update_from_sensor_observation(self, observation, sensor_pos: np.ndarray, 
-                                       timestamp: float, updated_voxels: Set):
-        """Enhanced sensor observation processing"""
-        for i, obj in enumerate(observation.detected_objects):
-            if i >= len(observation.range_estimates):
-                continue
-                
-            target_pos = obj['world_position']
-            confidence = min(0.95, max(0.2, 
-                observation.confidence_scores[i] if i < len(observation.confidence_scores) else 0.7))
-            
-            self._update_ray_voxels(sensor_pos, target_pos, confidence, timestamp, updated_voxels)
+    def occupied_mask(self) -> np.ndarray:
+        return self.grid.log_odds > self.occupied_threshold
 
-    def _update_ray_voxels(self, sensor_pos: np.ndarray, target_pos: np.ndarray, 
-                          confidence: float, timestamp: float, updated_voxels: Set):
-        """Improved ray casting with dense sampling"""
-        ray_vec = target_pos - sensor_pos
-        ray_length = np.linalg.norm(ray_vec)
-        if ray_length < 1e-6:
-            return
-            
-        ray_dir = ray_vec / ray_length
-        step_size = min(self.grid.resolution * 0.25, 1.0)
-        num_samples = int(ray_length / step_size) + 1
-        
-        for i in range(num_samples):
-            t = i / max(1, num_samples - 1)
-            point = sensor_pos + ray_dir * (t * ray_length)
-            voxel_coord = self._world_to_voxel_coord(point)
-            
-            if self._is_valid_voxel(voxel_coord):
-                distance_to_target = np.linalg.norm(point - target_pos)
-                
-                if distance_to_target > 2.0:
-                    prob_occupied = 0.05 * (1.0 - confidence)
-                elif distance_to_target <= 1.0:
-                    prob_occupied = 0.85 * confidence
-                else:
-                    prob_occupied = 0.3 * confidence
-                
-                update_weight = min(0.3, confidence)
-                self._bayesian_update_voxel(voxel_coord, prob_occupied, update_weight, timestamp)
-                updated_voxels.add(voxel_coord)
+    def probability(self) -> np.ndarray:
+        """Posterior occupancy relative to the prior (log_odds 0 -> 0.5)."""
+        return 1.0 / (1.0 + np.exp(-self.grid.log_odds))
 
-    def _bayesian_update_voxel(self, voxel_coord: Tuple[int, int, int], 
-                              measurement_prob: float, weight: float, timestamp: float):
-        """Weighted Bayesian update with bounds checking"""
-        x, y, z = voxel_coord
-        prior = self.grid.occupancy_probs[x, y, z]
-        
-        numerator = measurement_prob * prior
-        denominator = numerator + (1.0 - measurement_prob) * (1.0 - prior)
-        
-        if denominator > 0:
-            posterior = numerator / denominator
-            updated_prob = prior + (posterior - prior) * weight
-            self.grid.occupancy_probs[x, y, z] = np.clip(updated_prob, 0.01, 0.99)
-        
-        self.grid.confidence_scores[x, y, z] = min(1.0, 
-            self.grid.confidence_scores[x, y, z] + weight * 0.1)
-        self.grid.last_update_time[x, y, z] = timestamp
-
-    def _apply_targeted_temporal_decay(self, updated_voxels: Set, current_time: float):
-        """Selective temporal decay for non-updated voxels"""
-        decay_rate = 0.95
-        prior = 0.5
-        
-        all_coords = np.indices(self.grid.dimensions)
-        all_voxels = set(zip(all_coords[0].ravel(), all_coords[1].ravel(), all_coords[2].ravel()))
-        not_updated = all_voxels - updated_voxels
-        
-        for x, y, z in not_updated:
-            time_diff = current_time - self.grid.last_update_time[x, y, z]
-            if time_diff > 0.1:
-                decay_factor = decay_rate ** time_diff
-                self.grid.occupancy_probs[x, y, z] = (
-                    prior + (self.grid.occupancy_probs[x, y, z] - prior) * decay_factor)
-
-    def _world_to_voxel_coord(self, world_pos: np.ndarray) -> Tuple[int, int, int]:
-        """Convert with bounds checking"""
-        relative_pos = world_pos - self.grid.origin
-        voxel_pos = (relative_pos / self.grid.resolution).astype(int)
-        x = max(0, min(voxel_pos[0], self.grid.dimensions[0] - 1))
-        y = max(0, min(voxel_pos[1], self.grid.dimensions[1] - 1))
-        z = max(0, min(voxel_pos[2], self.grid.dimensions[2] - 1))
-        return (x, y, z)
-
-    def _is_valid_voxel(self, voxel_coord: Tuple[int, int, int]) -> bool:
-        """Check if voxel coordinates are within grid bounds"""
-        x, y, z = voxel_coord
-        return (0 <= x < self.grid.dimensions[0] and
-                0 <= y < self.grid.dimensions[1] and
-                0 <= z < self.grid.dimensions[2])
+    def detect(self, observations: List, timestamp: float) -> List[DetectedTarget]:
+        from space_carving import peaks_to_targets
+        obs, cams, idx, ev = self.update_grid(observations, timestamp)
+        if ev is None:
+            return []
+        Lsel = self.grid.log_odds.ravel()[idx]
+        sel = np.flatnonzero(Lsel > self.occupied_threshold)
+        if len(sel) == 0:
+            return []
+        X = self.grid.centers(idx[sel])
+        peaks = exclusive_peaks(X, ev['det'][:, sel], Lsel[sel].astype(float),
+                                self.grid.resolution, self.min_cameras)
+        return peaks_to_targets(peaks, X, obs, cams, self.grid.resolution, timestamp,
+                                DetectionMethod.OCCUPANCY_GRID)

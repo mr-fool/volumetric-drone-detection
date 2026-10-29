@@ -29,9 +29,7 @@ class PerformanceMonitor:
     def record_frame(self, processing_time: float, num_targets: int, 
                     num_observations: int, grid):
         """Record performance metrics for single frame"""
-        grid_memory = (grid.occupancy_probs.nbytes + 
-                      grid.confidence_scores.nbytes + 
-                      grid.last_update_time.nbytes) / (1024 * 1024)
+        grid_memory = grid.log_odds.nbytes / (1024 * 1024)
         
         metrics = {
             'processing_time': processing_time,

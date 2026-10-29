@@ -70,6 +70,10 @@ class DroneSwarmGenerator:
         Returns:
             Dictionary containing trajectories and metadata
         """
+        # Clear per-swarm state so a given random seed always yields the same
+        # trajectories, regardless of what was generated earlier.
+        if hasattr(self, '_evasive_direction'):
+            del self._evasive_direction
         spec = self.drone_types[drone_type]
         time_steps = int(duration / timestep)
         times = np.linspace(0, duration, time_steps)

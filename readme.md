@@ -1,1065 +1,291 @@
 # Volumetric Motion Detection for Multi-Drone Swarm Engagement
 
-Simulation framework for evaluating volumetric detection algorithms in multi-drone scenarios. Includes parallel processing optimization, environmental effects modeling, and comprehensive statistical validation methodology for desktop-class hardware deployment.
+Simulation framework for evaluating multi-camera detection of drone swarms. It generates swarm
+trajectories, simulates an array of passive optical cameras, runs three 3D detection methods
+(multi-view triangulation, space carving, and a Bayesian occupancy grid) plus a hybrid of all
+three, and scores every output against the true drone positions using Monte Carlo validation.
 
-## Overview
+> ## Correction: ground-truth leakage fixed
+>
+> In the version of this code used for the JDMS paper, the simulated cameras passed each
+> drone's **true 3D position** to the detection algorithms, and outputs were never scored
+> against ground truth. As a result:
+>
+> - **Triangulation** averaged true positions over every cross-camera pairing, producing the
+>   real drones plus phantom midpoints between them (about n + n(n-1)/2 outputs for n drones;
+>   the paper's "61.8 targets").
+> - **Space carving** deduplicated the true positions and returned them exactly (zero error;
+>   the paper's "11.1 targets" is simply the mean number of drones in view).
+> - **The occupancy grid** cast rays ending at the true positions, and was never run in the
+>   reported experiments.
+> - **Hybrid** contained no weighted fusion, and the reported "sensor noise 0.5-2.0x" setting did
+>   not change the pixel noise.
+> - The experiment was not repeatable: cameras drew noise from a shared generator across
+>   threads, and the trajectory generator carried state between runs.
+>
+> The paper's processing-time, detection-count, confidence and environmental-correlation results
+> therefore do not measure detection ability. The code now:
+>
+> - hands detectors only noisy pixel detections (shuffled, with nearby drones merged into one blob)
+>   plus camera calibration; ground truth is kept separately for scoring only;
+> - implements real cross-view association and least-squares triangulation, visual-hull space
+>   carving, and a log-odds occupancy grid on shared camera geometry;
+> - fuses the three in hybrid mode with explicit, unfitted default weights;
+> - scores every frame against ground truth (precision, recall, F1, position error, false positives);
+> - runs every method on identical observations, applies the noise multiplier to pixel noise, and
+>   computes bootstrap confidence intervals over scenarios, with paired Wilcoxon tests;
+> - derives all randomness from one master seed, so results are exactly reproducible;
+> - includes tests that fail if ground truth reaches a detector or if results stop being reproducible.
+>
+> The original code is preserved in this repository's history. All results in this README come
+> from the corrected code.
 
-This project develops a comprehensive simulation framework that combines:
-- Drone trajectory generation with realistic flight patterns
-- Multi-camera sensor arrays with environmental limitations
-- Volumetric motion detection using probabilistic occupancy grids
-- Real-time 3D target detection and tracking algorithms
-- Enhanced sensor detection range analysis and visualization
-- **Rigorous statistical validation with Monte Carlo methodology**
+## Corrected Validation Results
 
-## Technical Specifications
+50 Monte Carlo scenarios, master seed 42, 8-camera perimeter array. All methods run on identical
+observations; outputs are matched to ground truth within max(10 m, 2 x voxel size). Values are
+mean [95% bootstrap CI over scenarios].
 
-### Volumetric Detection Parameters
+Full data: `results/validation_50runs_corrected.json`. Report with paired Wilcoxon tests and LaTeX
+tables: `results/statistical_analysis_report_corrected_50runs.txt`.
 
-#### Voxel Resolution Impact
-The **voxel resolution** parameter determines the size of 3D grid cubes used for volumetric analysis:
+| Method | F1 | Precision | Recall | Position error (m) | False positives / frame | Time / frame (ms)* |
+|---|---|---|---|---|---|---|
+| Triangulation | 0.953 [0.930, 0.972] | 0.960 | 0.947 | 2.56 [2.26, 2.85] | 0.51 | 58 |
+| Space carving | 0.866 [0.808, 0.913] | 0.864 | 0.869 | 3.67 [3.28, 4.11] | 1.87 | 941 |
+| Occupancy grid | 0.688 [0.629, 0.745] | 0.680 | 0.699 | 6.29 [5.86, 6.71] | 4.51 | 972 |
+| Hybrid | 0.933 [0.904, 0.958] | 0.922 | 0.951 | 2.57 [2.27, 2.89] | 1.21 | 1609 |
 
-| Resolution | Voxel Size | Total Voxels | Memory Usage | Performance | Detection Precision |
-|------------|------------|--------------|--------------|-------------|-------------------|
-| 10.0m      | 10×10×10m  | 450,000      | ~10MB       | Fastest     | Low precision     |
-| 7.0m       | 7×7×7m     | 1.3M         | ~30MB       | Fast        | Medium precision  |
-| 5.0m       | 5×5×5m     | 3.6M         | ~82MB       | Moderate    | Good precision    |
-| 3.0m       | 3×3×3m     | 16.7M        | ~381MB      | Slow        | High precision    |
-| 2.0m       | 2×2×2m     | 56.3M        | ~1.3GB      | Very slow   | Very high precision |
-| 1.5m       | 1.5×1.5×1.5m | 133M+      | ~3GB+       | Impractical | Maximum precision |
+\* Processing time depends on hardware (measured on a 2-core cloud VM) and is not reproducible
+by seed.
 
-**Recommended Configurations:**
-- **Development/Testing**: 10.0m resolution (fast, low memory)
-- **Standard Operation**: 5.0-7.0m resolution (balanced performance)
-- **High-Precision Research**: 3.0m resolution (maximum practical precision)
+F1 by flight pattern:
 
-#### Memory Usage Formula
-```
-Total Voxels = (Area_X / Resolution) × (Area_Y / Resolution) × (Area_Z / Resolution)
-Memory (MB) = Total_Voxels × 3_coordinates × 8_bytes / (1024²)
-```
+| Pattern | n | Triangulation | Space carving | Occupancy grid | Hybrid |
+|---|---|---|---|---|---|
+| Coordinated attack | 14 | 1.00 | 0.99 | 0.86 | 1.00 |
+| Random dispersal | 12 | 0.96 | 0.96 | 0.82 | 0.96 |
+| Evasive maneuvers | 13 | 0.98 | 0.94 | 0.57 | 0.97 |
+| Formation flying | 11 | 0.86 | 0.53 | 0.46 | 0.78 |
 
-### Surveillance Coverage Specifications
+Robustness across master seeds (50 scenarios each; seeds chosen in advance):
 
-#### Operational Area
+| Master seed | Triangulation F1 | Space carving F1 | Occupancy grid F1 | Hybrid F1 | Triangulation error (m) | Hardest pattern | Triangulation vs hybrid F1 (Wilcoxon p) |
+|---|---|---|---|---|---|---|---|
+| 42 (main) | 0.953 | 0.866 | 0.688 | 0.933 | 2.56 | Formation flying | 2.0e-4 |
+| 1 | 0.942 | 0.832 | 0.679 | 0.921 | 2.52 | Formation flying | 1.7e-4 |
+| 2 | 0.939 | 0.830 | 0.638 | 0.912 | 2.67 | Formation flying | 3.8e-5 |
+| 3 | 0.947 | 0.882 | 0.645 | 0.934 | 2.82 | Formation flying | 5.3e-4 |
+
+The method ranking (triangulation > hybrid > space carving > occupancy grid), the hardest pattern,
+and the triangulation-vs-hybrid difference are the same for every seed.
+
+Key findings:
+- Triangulation is the most accurate and the fastest. Hybrid fusion (default, unfitted weights)
+  does not beat it on F1 (paired Wilcoxon p = 0.0002) because the voxel methods add false positives.
+- Dense formation flying (about 25 m spacing) is the hardest case: voxel methods at 3-10 m
+  resolution cannot separate ghost intersections from real drones (space carving F1 0.53).
+- Pixel noise drives position error (Spearman r = 0.92 for triangulation). The visibility setting
+  had no measurable effect on recall, because at the simulated visibility values (0.52-1.0) no
+  drone falls below the sensor's detection threshold.
+- The voxel methods take about 1-2 s per frame in Python, so they are not real-time as implemented.
+
+## Simulation Setup
+
+### Surveillance volume
+
 ```python
-# Default simulation bounds
-Surveillance Area: 1000m × 1000m (1 km²)
-Altitude Range: 50m - 500m above ground level
-Total Volume: 450,000,000 m³
+bounds = SimulationBounds(
+    x_min=0.0, x_max=1000.0,   # 1 km x 1 km
+    y_min=0.0, y_max=1000.0,
+    z_min=50.0, z_max=500.0    # 50-500 m altitude
+)
 ```
 
-#### Altitude Detection Characteristics
+### Camera array (default: `"perimeter"`)
 
-| Altitude Range | Detection Difficulty | Voxel Resolution Needed | Typical Use Cases |
-|----------------|---------------------|------------------------|-------------------|
-| 50-150m        | Easy                | 5.0-7.0m              | Low-altitude surveillance, landing detection |
-| 150-300m       | Moderate            | 3.0-5.0m              | Standard patrol monitoring |
-| 300-500m       | Challenging         | 2.0-3.0m              | High-altitude tracking, long-range detection |
+- 8 visible-spectrum optical cameras; no radar or other modalities were used in the results above
+- 1920 x 1080 pixels, 60 deg (H) x 45 deg (V) field of view
+- 50-2000 m detection range
+- Circular perimeter at 600 m radius, 100 m elevation, 45 deg spacing, each facing the centre
+- 2 px (1-sigma) base pixel noise, increased by weather and wind, times the scenario noise multiplier
 
-#### Camera Array Specifications
+Each camera reports only the pixel coordinates and a confidence score for each blob it detects.
+Passive cameras do not measure range. Other array types (`"triangulation"`, `"mixed"`) exist in
+`sensor_simulation.py` but were not used in the validation.
 
-**Perimeter Configuration (Default - VALIDATED IN JDMS PUBLICATION):**
-- **Camera Count**: 8 visible-spectrum optical cameras (NO radar sensors)
-- **Sensor Type**: Visible spectrum only (1920x1080 resolution)
-- **Placement**: Circular perimeter at 600m radius, 100m elevation
-- **Detection Range**: 2000m maximum, 50m minimum
-- **Field of View**: 60deg (H) x 45deg (V) per camera
-- **Angular Spacing**: 45deg between adjacent cameras
-- **Coverage**: Complete perimeter monitoring with overlapping FOV for triangulation
-- **Validated**: 50 Monte Carlo scenarios across 4 tactical flight patterns
+### Drones and flight patterns
 
-**IMPORTANT NOTE**: The validation experiments used ONLY optical cameras. 
-Radar and other sensor modalities are framework capabilities but were NOT 
-included in the statistical validation or JDMS publication results.
+- Drone types: `small` (0.8 m wingspan, 25 m/s max; used in validation), `medium` (1.5 m, 35 m/s)
+- Patterns: `COORDINATED_ATTACK`, `FORMATION_FLYING`, `EVASIVE_MANEUVERS`, `RANDOM_DISPERSAL`,
+  `PERIMETER_SWEEP` (the last is not included in the Monte Carlo validation)
 
-**Triangulation Configuration:**
-- **Camera Count**: 6 cameras
-- **Placement**: Optimized for 3D accuracy
-- **Detection Range**: 1-1.5 km
-- **Precision**: Higher 3D positioning accuracy
-- **Coverage**: Optimized for central area detection
+### Monte Carlo scenarios
 
-#### Detection Range vs. Distance
+Each scenario randomises swarm size (5-20 drones), flight pattern, duration (3-8 s, 0.5 s
+timestep, up to 8 frames scored), voxel resolution (3-10 m), visibility (0.52-1.0) and pixel-noise
+multiplier (0.5-2.0x).
 
-| Distance from Cameras | Detection Confidence | Recommended Resolution | Processing Time |
-|----------------------|---------------------|----------------------|----------------|
-| 0-500m               | High (0.7-0.9)      | 5.0-7.0m            | Fast           |
-| 500-1000m            | Medium (0.5-0.7)    | 3.0-5.0m            | Moderate       |
-| 1000-1500m           | Low (0.3-0.5)       | 2.0-3.0m            | Slow           |
-| 1500m+               | Very Low (<0.3)     | 1.5-2.0m            | Very slow      |
+## Detection Methods
 
-### Drone Detection Capabilities
+All methods receive the same input: noisy pixel detections plus each camera's calibration.
 
-#### Drone Size vs. Detection Range
+| Method | How it works | Strengths and weaknesses |
+|---|---|---|
+| `TRIANGULATION` | Intersects pixel rays for every camera pair, keeps hypotheses that reproject inside the noise gate, rejects those contradicted by other cameras, assigns each image blob to at most one target, then refines position by least squares on reprojection error | Most accurate; fastest; handles dense formations best |
+| `SPACE_CARVING` | Keeps voxels whose projections land on a detection in every camera that can see them (at least 2), then extracts one target per group of image blobs | Hard consistency test: one missed detection removes a drone; limited by voxel size |
+| `OCCUPANCY_GRID` | Per-voxel log-odds: detections along a ray raise occupancy, empty views lower it, evidence decays between frames | Tolerates a single missed detection, but evidence spreads along rays, so error and false positives are higher |
+| `HYBRID` | Runs all three and matches their targets; confidence is a weighted sum (default weights 0.5 / 0.25 / 0.25, not tuned); position from triangulation when available | Not better than triangulation alone with the default weights |
 
-| Drone Type | Wingspan | Max Speed | Detection Range | Min Resolution | Typical Confidence |
-|------------|----------|-----------|----------------|---------------|-------------------|
-| Micro      | 0.3m     | 15 m/s    | 300-800m       | 3.0m          | 0.3-0.6          |
-| Small      | 0.8m     | 25 m/s    | 500-1200m      | 5.0m          | 0.4-0.7          |
-| Medium     | 1.5m     | 35 m/s    | 800-1500m      | 7.0m          | 0.5-0.8          |
-| Large      | 2.5m+    | 45 m/s    | 1000-2000m     | 10.0m         | 0.6-0.9          |
+If you tune the fusion weights, tune on one master seed and report on others, so the reported
+results are not fitted to the test data.
 
-#### Altitude-Specific Performance
+### Voxel grid memory
 
-**Low Altitude (50-150m):**
-- **Advantages**: High detail, strong sensor response, precise tracking
-- **Challenges**: Limited coverage area per camera
-- **Optimal Resolution**: 5.0-7.0m
-- **Detection Confidence**: 0.6-0.9
+The voxel methods store one float32 log-odds value per voxel (computed size, not measured process
+memory):
 
-**Medium Altitude (150-300m):**
-- **Advantages**: Balanced coverage and detail, optimal sensor performance
-- **Challenges**: Moderate atmospheric interference
-- **Optimal Resolution**: 3.0-5.0m
-- **Detection Confidence**: 0.5-0.8
-
-**High Altitude (300-500m):**
-- **Advantages**: Wide area coverage, strategic overview
-- **Challenges**: Reduced sensor resolution, atmospheric effects
-- **Optimal Resolution**: 2.0-3.0m
-- **Detection Confidence**: 0.3-0.7
-
-### Algorithm Performance Characteristics (Statistically Validated)
-
-#### Detection Method Comparison
-
-| Method | Processing Time | Target Count | Precision | Coverage | Best Use Case |
-|--------|----------------|--------------|-----------|----------|---------------|
-| **Triangulation** | 828.0 ± 112.9ms | 61.8 ± 4.0 targets | Medium | High | Comprehensive surveillance |
-| **Space Carving** | 23.7 ± 1.8ms | 11.1 ± 0.3 targets | High | Medium | Precision tracking |
-| **Hybrid** | 868.0 ± 95.5ms | 61.8 ± 4.0 targets | High | High | Optimal balanced detection |
-
-*All values represent mean ± 95% confidence intervals from Monte Carlo validation (n=384 measurements across 50 scenarios)*
-
-#### Performance vs. Resolution Trade-offs
-
-| Resolution | Triangulation | Space Carving | Hybrid | Memory | Use Case |
-|------------|---------------|---------------|--------|--------|----------|
-| 10.0m      | ~800ms        | ~20ms         | ~850ms | 10MB   | Real-time development |
-| 7.0m       | ~850ms        | ~25ms         | ~900ms | 30MB   | Standard operation |
-| 5.0m       | ~900ms        | ~30ms         | ~950ms | 82MB   | High-quality detection |
-| 3.0m       | ~1000ms       | ~40ms         | ~1100ms| 381MB  | Research/analysis |
-
-*Processing times are approximate scaling from validated measurements*
-
-### Validated Swarm Patterns (JDMS Publication)
-
-All four tactical patterns tested across 50 Monte Carlo scenarios:
-
-| Pattern | Description | Scenarios | Avg Processing | Avg Detection | Confidence |
-|---------|-------------|-----------|----------------|---------------|------------|
-| **Coordinated Attack** | Simultaneous multi-point ingress | 24% | 45.2ms | 9.8 targets | 0.76 |
-| **Formation Flying** | Organized relative positioning | 28% | 43.8ms | 10.2 targets | 0.78 |
-| **Evasive Maneuvers** | Irregular unpredictable motion | 26% | 52.1ms | 8.9 targets | 0.72 |
-| **Random Dispersal** | Independent non-coordinated | 22% | 41.6ms | 9.5 targets | 0.75 |
-
-*Note: Generate these exact numbers from your actual validation data*
-
-All patterns validated with:
-- Swarm sizes: 5-20 drones
-- Duration: 3-8 seconds
-- Drone type: Small class (0.8m wingspan, 25 m/s max)
-- Statistical method: Bootstrap confidence intervals (1000 samples)
-- Sample sizes: n=250-500 (processing time), n=1000-5000 (detections)
-
-### Environmental Factors
-
-#### Weather Impact on Detection (Validated)
-
-| Condition | Visibility | Detection Range | Confidence Impact | Environmental Correlation |
-|-----------|------------|----------------|-------------------|--------------------------|
-| Clear     | Excellent  | 100%           | None              | r = 0.362* baseline      |
-| Light Rain| Good       | 80%            | -10%              | Moderate degradation     |
-| Heavy Rain| Poor       | 60%            | -25%              | Significant degradation  |
-| Fog       | Very Poor  | 40%            | -40%              | Severe degradation       |
-
-*Environmental correlation coefficient r = 0.362 measured between visibility conditions and detection confidence*
-
-#### Time of Day Considerations
-
-| Time Period | Sensor Type | Detection Quality | Recommended Configuration |
-|-------------|-------------|------------------|--------------------------|
-| Daylight    | Visible     | Excellent        | Standard settings        |
-| Dawn/Dusk   | Mixed       | Good             | Slightly higher resolution|
-| Night       | Thermal/IR  | Variable         | Higher resolution + thermal|
-
-### System Resource Requirements
-
-#### Minimum Requirements
-- **CPU**: Quad-core 2.0GHz
-- **RAM**: 8GB (for resolutions ≥5.0m)
-- **Storage**: 2GB free space
-- **Python**: 3.11+
-
-#### Recommended Specifications
-- **CPU**: 8+ cores, 3.0GHz+ (AMD Ryzen 5/7, Intel i5/i7)
-- **RAM**: 16-32GB (for resolutions 3.0-5.0m)
-- **Storage**: 5GB free space
-- **GPU**: Optional (future enhancement)
-
-#### High-Performance Research Setup
-- **CPU**: 12+ cores, 3.5GHz+ (AMD Ryzen 7/9, Intel i7/i9)
-- **RAM**: 32-64GB (for resolutions ≤3.0m)
-- **Storage**: 10GB+ SSD
-- **Network**: High-speed for distributed processing
-
-### Configuration Guidelines
-
-#### Performance-Optimized Settings
-```bash
-# Fast development testing
-python minimal_launcher.py --resolution 10.0 --drones 5 --duration 2.0
-
-# Balanced production use
-python minimal_launcher.py --resolution 5.0 --drones 12 --duration 5.0
-```
-
-#### Accuracy-Optimized Settings
-```bash
-# High-precision research
-python safe_integration_test.py  # Uses conservative 10.0m resolution
-
-# Maximum practical accuracy (requires 32GB+ RAM)
-python minimal_launcher.py --resolution 3.0 --drones 8 --duration 3.0
-```
-
-#### Resource-Constrained Settings
-```bash
-# Low memory systems (8GB RAM)
-python minimal_launcher.py --resolution 10.0 --drones 3 --duration 1.0
-
-# Limited processing power
-python debug_test.py  # Minimal resource usage
-```
-
-## Statistical Validation Framework
-
-### Comprehensive Monte Carlo Validation
-
-This framework includes rigorous statistical validation methodology providing legitimate confidence intervals and performance bounds for all research claims.
-
-#### Validation Methodology
-- **Sample Size**: 50 Monte Carlo scenarios with 384 total measurements
-- **Confidence Intervals**: 95% bootstrap resampling methodology
-- **Statistical Tests**: Paired t-tests for algorithm comparison
-- **Environmental Modeling**: Systematic parameter variation
-- **Hardware Validation**: Desktop-class computing platforms
-
-#### Key Statistical Findings
-- **Processing Time Validation**: All algorithms demonstrate consistent performance within measured confidence bounds
-- **Detection Count Reliability**: Triangulation and hybrid methods show statistically equivalent comprehensive detection
-- **Environmental Correlation**: Moderate visibility-confidence relationship (r = 0.362)
-- **Performance Significance**: Space carving significantly faster than alternatives (p < 0.001)
-
-#### Quick Start Statistical Validation
-
-```bash
-# Standard validation for research papers (50 runs, ~15-20 minutes) 
-python run_statistical_validation.py --standard
-
-# Quick test validation (10 runs, ~5 minutes)
-python run_statistical_validation.py --quick
-
-# Thorough analysis (100 runs, ~25-30 minutes)
-python run_statistical_validation.py --thorough
-
-# Generate LaTeX tables from validation results
-python statistical_analysis.py statistical_validation_results_[timestamp].json --latex-only
-
-# Save tables to file for paper inclusion
-python statistical_analysis.py results.json --latex-only > latex_tables.tex
-```
-
-## Visualization Examples
-
-The system generates comprehensive visualizations of both sensor coverage and drone trajectory patterns:
-
-### Sensor Array Coverage
-
-The sensor array visualization shows the 8-camera perimeter configuration with overlapping fields of view, providing comprehensive coverage of the surveillance area.
-<img width="2246" height="1091" alt="sensor_coverage" src="https://github.com/user-attachments/assets/35f2335a-e719-47bb-b478-36dc8883febc" />
-
-### Detection Range Analysis
-
-The detection range analysis system provides detailed insights into camera performance and coverage capabilities. This advanced feature helps optimize sensor placement and understand detection limitations under various conditions.
-<img width="2225" height="848" alt="camera_01_detection_range" src="https://github.com/user-attachments/assets/a75ba7e9-46fd-437e-9a5c-d6af8c1caa35" />
-<img width="2225" height="848" alt="camera_02_detection_range" src="https://github.com/user-attachments/assets/6745f90c-4dc8-4de7-a1f9-5199c372d6b3" />
-<img width="2225" height="848" alt="camera_03_detection_range" src="https://github.com/user-attachments/assets/f9966588-5641-46f9-b258-87acb3e21086" />
-<img width="2225" height="848" alt="camera_04_detection_range" src="https://github.com/user-attachments/assets/bd1c720e-244c-4cd2-b977-b5fdf4164662" />
-<img width="2225" height="848" alt="camera_05_detection_range" src="https://github.com/user-attachments/assets/13387276-5fe7-486b-98ea-4ca2ca7b3304" />
-<img width="2225" height="848" alt="camera_06_detection_range" src="https://github.com/user-attachments/assets/82888139-009a-495b-a854-29a6911a1124" />
-<img width="2225" height="848" alt="camera_07_detection_range" src="https://github.com/user-attachments/assets/638631ce-0a1d-4e36-9347-e87fa5e9ad08" />
-<img width="2225" height="848" alt="camera_08_detection_range" src="https://github.com/user-attachments/assets/4a8d07d9-6e61-45bd-9992-c9111dd9f168" />
-<img width="2647" height="1440" alt="detection_range_explanation" src="https://github.com/user-attachments/assets/252f6134-eeb9-4ba3-bd85-2b096da485c5" />
-<img width="2984" height="1475" alt="detection_range_summary_all_cameras" src="https://github.com/user-attachments/assets/4462a42f-9b25-489f-bb76-2777ad64d6d1" />
-
-#### Detection Range Concept
-
-The detection range visualization shows how far each camera can reliably detect drone targets at different angles relative to the camera's orientation. Key factors affecting detection range include:
-
-- **Field of View Limits**: Detection only occurs within the camera's FOV cone
-- **Distance Attenuation**: Atmospheric effects reduce detection capability with distance
-- **Target Size Requirements**: Minimum apparent size needed for reliable detection
-- **Environmental Conditions**: Weather, lighting, and humidity effects
-- **Sensor Limitations**: Resolution, noise thresholds, and angular resolution
-
-#### Available Analysis Types
-
-**Individual Camera Analysis**: Generate detailed detection profiles for each camera in the array
-```bash
-# Generate 8 individual camera detection range plots + summary
-python test_visualization.py --detection-analysis individual --detection-only
-```
-
-**Representative Camera Explanation**: Create a comprehensive single-image explanation of detection range concepts
-```bash
-# Generate educational detection range explanation
-python test_visualization.py --detection-analysis representative --detection-only
-```
-
-**Complete Analysis**: Generate both individual and representative visualizations
-```bash
-# Generate all detection range analysis types
-python test_visualization.py --detection-analysis both --detection-only
-```
-
-#### Detection Range Performance Metrics
-
-| Camera Position | Max Detection Range | Effective FOV | Coverage Quality | Typical Confidence |
-|----------------|-------------------|---------------|------------------|-------------------|
-| Perimeter North | 1,600-2,000m | 55-60° | High | 0.6-0.9 |
-| Perimeter East | 1,600-2,000m | 55-60° | High | 0.6-0.9 |
-| Perimeter South | 1,600-2,000m | 55-60° | High | 0.6-0.9 |
-| Perimeter West | 1,600-2,000m | 55-60° | High | 0.6-0.9 |
-| Corner Positions | 1,400-1,800m | 50-55° | Medium-High | 0.5-0.8 |
-
-### Drone Flight Patterns
-
-#### Evasive Maneuvers Pattern (15 drones)
-<img width="1222" height="1275" alt="trajectory_evasive_15drones_small" src="https://github.com/user-attachments/assets/9e311993-1c53-483a-ae96-4f27a9adb863" />
-
-Shows drones executing evasive maneuvers with rapid direction changes and altitude variations.
-
-#### Formation Flying Pattern (20 drones)
-<img width="1222" height="1275" alt="trajectory_formation_20drones_small" src="https://github.com/user-attachments/assets/efbe57f9-ddf7-4874-bf37-378395e45d1e" />
-
-Demonstrates coordinated formation flying with tight grouping and synchronized movement patterns.
-
-#### Perimeter Sweep Pattern (12 drones)
-<img width="1222" height="1275" alt="trajectory_perimeter_12drones_small" src="https://github.com/user-attachments/assets/da55f683-5dc4-4f09-8359-cb9f35f72a86" />
-
-Illustrates systematic perimeter sweeping with drones maintaining altitude separation and coordinated coverage.
-
-#### Random Dispersal Pattern (8 drones)
-<img width="1222" height="1275" alt="trajectory_random_8drones_small" src="https://github.com/user-attachments/assets/70e368a9-91c3-4b35-973a-e0f26f187cbc" />
-
-Small-scale random dispersal showing individual drone trajectories with color legend for easy tracking.
-
-#### Random Dispersal Pattern (25 drones)
-<img width="1222" height="1275" alt="trajectory_swarm_25drones_small" src="https://github.com/user-attachments/assets/4e189aac-5c09-4d71-817e-37cdfeb0687d" />
-
-Large-scale swarm simulation demonstrating complex multi-drone interactions without cluttered legends.
-
-## Current Status
-
-- **Completed**: Drone trajectory generator with validated performance characteristics
-- **Completed**: Multi-camera sensor simulation with realistic limitations  
-- **Completed**: Volumetric detection pipeline with hybrid algorithms
-- **Completed**: Integration testing framework with research validation
-- **Completed**: Parallel processing optimization with measured scalability
-- **Completed**: Comprehensive algorithm comparison and statistical benchmarking
-- **Completed**: Enhanced visualization system with multiple flight patterns
-- **Completed**: Detection range analysis system with individual and representative modes
-- **Completed**: Statistical validation framework with Monte Carlo methodology
-- **Recently Validated**: All performance claims through rigorous statistical testing
-- **Recently Added**: Confidence intervals for all performance metrics
-
-## Features
-
-### Drone Trajectory Generation
-- Multiple flight patterns (coordinated attack, formation flying, evasive maneuvers, perimeter sweep, random dispersal)
-- Realistic physics constraints (velocity, acceleration limits)
-- Environmental effects (wind, sensor noise)
-- Scalable from 5-50+ drones per scenario
-
-### Enhanced Visualization System
-- Customizable drone count (1-50 drones)
-- Multiple flight patterns with distinct behaviors
-- 3D trajectory visualization with automatic legend management
-- Clean, professional visualizations suitable for research presentation
-- Organized image output to dedicated `images/` folder
-
-### Advanced Detection Range Analysis
-- **Individual camera analysis**: Detailed detection profiles for each camera
-- **Representative explanations**: Educational visualizations of detection concepts
-- **Performance metrics**: Range, coverage, and confidence statistics
-- **Environmental modeling**: Weather and atmospheric effects on detection
-- **Optimization guidance**: Recommendations for sensor placement and configuration
-
-### Virtual Sensor Array Simulation
-- Multi-camera configurations (perimeter, triangulation arrays)
-- Realistic sensor limitations (range, field of view, noise)
-- Environmental effects (weather, visibility degradation)
-- Multiple sensor types (visible spectrum, thermal infrared)
-
-### Volumetric Detection Pipeline
-- Probabilistic occupancy grids with Bayesian updates
-- Optimized space carving algorithms for 3D reconstruction
-- Multi-view geometry triangulation
-- Hybrid detection methods combining multiple approaches
-- Temporal target tracking with velocity estimation
-
-### Parallel Processing Framework
-- Multi-core CPU utilization with measured efficiency
-- Concurrent algorithm testing and comparison
-- Parallel scenario validation
-- Scalable performance across desktop hardware
-
-### Statistical Validation Framework
-- Monte Carlo methodology with 50+ scenario validation
-- Bootstrap confidence interval estimation
-- Paired statistical significance testing
-- Environmental parameter correlation analysis
-- Publication-ready statistical reporting
-
-### Performance Analysis
-- Real-time computational performance metrics with confidence bounds
-- Statistical validation frameworks with reproducible protocols
-- Visualization tools for trajectory and sensor data
-- Comprehensive testing and benchmarking with measured results
+| Resolution | Voxels | Grid memory |
+|---|---|---|
+| 10 m | 450,000 | 1.7 MB |
+| 7 m | 1.33 M | 5.1 MB |
+| 5 m | 3.6 M | 13.7 MB |
+| 3 m | 16.7 M | 63.8 MB |
+| 2 m | 56.3 M | 214.6 MB |
 
 ## Installation
 
-### Prerequisites
-- Python 3.11+ 
-- Windows 10/11, macOS, or Linux
-- 8GB+ RAM recommended (32GB for large scenarios)
-- Multi-core CPU recommended for parallel processing
+Requires Python 3.11+ and NumPy 1.25 or newer (Windows, macOS or Linux).
 
-### Setup
-
-1. **Clone the repository:**
 ```bash
 git clone https://github.com/mr-fool/volumetric-drone-detection
 cd volumetric-drone-detection
-```
-
-2. **Install dependencies:**
-```bash
 pip install -r requirements.txt
+python tests/test_detection_integrity.py   # should print "all integrity checks passed"
 ```
 
-3. **Verify installation:**
+## Usage
+
+### Reproduce the validation results
+
 ```bash
-python quick_validation_test_optimized.py
+# Main results: master seed 42 is the default (about 15 minutes with 2 workers)
+python statistical_validation.py --runs 50 --workers 4
+
+# Robustness checks: same experiment, different random sample
+python statistical_validation.py --runs 50 --seed 1
+
+# Report, significance tests and LaTeX tables
+python statistical_analysis.py statistical_validation_results_<timestamp>.json -o report.txt
+
+# Figures
+python make_result_figures.py statistical_validation_results_<timestamp>.json results
 ```
 
-## Usage Guide
+The master seed is 42 unless you pass `--seed`; the same seed gives identical accuracy results for any `--workers` value. `run_statistical_validation.py`
+is a convenience wrapper (`--quick` 10 runs, `--standard` 50, `--thorough` 100) that uses the
+default seed 42.
 
-### Quick Testing
+### Quick checks
 
-#### Basic Functionality Test (Recommended)
 ```bash
-# Test all three detection methods with validated performance
-python quick_validation_test_optimized.py
+python quick_validation_test_optimized.py          # one frame through every method
+python minimal_launcher.py --resolution 10 --drones 5 --duration 2
+python safe_integration_test.py                    # several small configurations
+python debug_test.py                               # step-by-step diagnostics
 ```
 
-#### Enhanced Visualization Testing
+These print detections and timings. Use `statistical_validation.py` for accuracy, since it scores
+outputs against ground truth.
+
+### Use the pipeline in your own code
+
+```python
+import sys; sys.path.insert(0, "src")
+from drone_trajectory_generator import DroneSwarmGenerator, FlightPattern, SimulationBounds
+from sensor_simulation import create_standard_sensor_array
+from volumetric_detection import VolumetricDetectionPipeline, DetectionMethod
+from evaluation import score_frame
+
+bounds = SimulationBounds()
+traj = DroneSwarmGenerator(bounds).generate_swarm_trajectories(
+    num_drones=10, pattern=FlightPattern.COORDINATED_ATTACK, duration=5.0, timestep=0.5)
+cameras = create_standard_sensor_array(bounds, "perimeter")
+truth = traj["trajectories"][:, 4, :]                  # true positions (for scoring only)
+observations = cameras.observe_targets(truth, traj["times"][4])
+
+pipeline = VolumetricDetectionPipeline(bounds, voxel_resolution=5.0)
+targets = pipeline.detect(observations, traj["times"][4], DetectionMethod.TRIANGULATION)
+print(score_frame(targets, truth, gate_m=10.0))        # precision, recall, F1, error...
+```
+
+### Visualizations
+
 ```bash
-# Generate visualizations with custom parameters
 python test_visualization.py --drones 15 --pattern evasive --type small
-
-# Generate large swarm visualization
-python test_visualization.py --drones 25 --pattern swarm --type small
-
-# Generate formation flying demonstration
-python test_visualization.py --drones 20 --pattern formation --type small
-
-# Generate perimeter sweep pattern
-python test_visualization.py --drones 12 --pattern perimeter --type small
-
-# List available flight patterns
 python test_visualization.py --list-patterns
+python test_visualization.py --detection-analysis individual --detection-only     # 8 camera plots + summary
+python test_visualization.py --detection-analysis representative --detection-only # single explanation figure
+python generate_memory_plot.py                                                    # voxel grid memory figure
 ```
 
-#### Detection Range Analysis
-```bash
-# Generate individual camera detection range plots (8 cameras + summary)
-python test_visualization.py --detection-analysis individual --detection-only
+`generate_all_figures.bat` runs the full set; images are written to `images/`. These figures show
+trajectories and camera coverage; they are not detection results.
 
-# Generate comprehensive detection range explanation (single image)
-python test_visualization.py --detection-analysis representative --detection-only
+## Reproducibility
 
-# Generate both types of detection range analysis
-python test_visualization.py --detection-analysis both --detection-only
+- `--seed` (default 42) sets the scenario list. Each scenario's seed is derived from it with
+  `numpy.random.SeedSequence`, so results do not depend on worker count or completion order.
+- Each camera draws noise from its own child generator, created in camera order before the camera
+  threads start, so thread timing cannot change the noise.
+- The trajectory generator resets its per-swarm state on every call.
+- `tests/test_detection_integrity.py` checks that observations carry no ground truth, that every
+  method clears a basic accuracy bar with non-zero error, and that the same seed gives identical results.
 
-# Combine trajectory visualization with detection range analysis
-python test_visualization.py --drones 15 --pattern evasive --detection-analysis representative
-```
-
-#### Statistical Validation
-```bash
-# Standard validation for research papers (50 runs, ~15-20 minutes) 
-python run_statistical_validation.py --standard
-
-# Quick validation test (10 runs, ~5 minutes)
-python run_statistical_validation.py --quick
-
-# Generate LaTeX tables from results
-python statistical_analysis.py results.json --latex-only
-```
-
-#### Comprehensive Validation
-```bash
-# Run safe integration test with reasonable parameters
-python safe_integration_test.py
-
-# Run minimal launcher with custom settings
-python minimal_launcher.py --resolution 10.0 --drones 8 --duration 5.0
-```
-
-### Legacy Component Tests
-
-#### Debug and Diagnostic Tests
-```bash
-# Quick diagnostic test
-python debug_test.py
-
-# Basic functionality validation
-python quick_validation_test_optimized.py
-```
-
-### Performance Benchmarking
-
-The system has been tested and validated on desktop hardware:
-- **CPU**: AMD Ryzen 5 5600 (12 cores)
-- **RAM**: 64GB DDR4
-- **GPU**: RTX 3060 12GB (optional)
-- **OS**: Windows 11
-
-**Measured Performance (Statistically Validated):**
-- **Triangulation Detection**: 828.0 ± 112.9ms processing time, 61.8 ± 4.0 targets detected
-- **Space Carving Detection**: 23.7 ± 1.8ms processing time, 11.1 ± 0.3 targets detected  
-- **Hybrid Detection**: 868.0 ± 95.5ms processing time, 61.8 ± 4.0 targets detected
-- **Environmental Correlation**: r = 0.362 between visibility and detection confidence
-- **Statistical Significance**: Space carving significantly faster (p < 0.001)
-- **Validation Time**: 15-20 minutes for standard validation (50 scenarios)
-- **CPU Utilization**: Parallel processing with automatic worker scaling
-- **Memory Usage**: Scales predictably with voxel resolution
-
-**Updated Detection Performance (Validated):**
-- **Triangulation Method**: Comprehensive detection with confidence bounds
-- **Space Carving Method**: Fastest processing with precision filtering
-- **Hybrid Method**: Optimal balance of speed and coverage
-- **Overall System**: All methods validated through statistical testing
-
-### Example Scenarios
-
-#### Quick Detection Test
-```bash
-python quick_validation_test_optimized.py
-```
-
-Expected output (validated ranges):
-```
-Testing triangulation:
-  Results: ~60-64 targets detected (~800-900ms processing)
-
-Testing space_carving:
-  Results: ~11-12 targets detected (~20-30ms processing)
-
-Testing hybrid:
-  Results: ~60-64 targets detected (~850-950ms processing)
-```
-
-#### Coordinated Swarm Attack Simulation
-```bash
-python test_visualization.py --drones 15 --pattern coordinated --duration 10.0
-```
-
-#### Multi-Sensor Detection Analysis
-```bash
-python test_visualization.py  # Generates sensor coverage visualization automatically
-```
-
-#### Detection Range Analysis Examples
-```bash
-# For technical/engineering audiences - detailed individual camera analysis
-python test_visualization.py --detection-analysis individual --detection-only
-
-# For general/executive audiences - comprehensive single explanation
-python test_visualization.py --detection-analysis representative --detection-only
-```
-
-#### Statistical Validation Examples
-```bash
-# Quick statistical test
-python run_statistical_validation.py --quick
-
-# Generate publication-ready tables
-python statistical_analysis.py results.json --latex-only > paper_tables.tex
-```
+Processing times are the only outputs that vary between identical runs.
 
 ## Project Structure
 
 ```
 volumetric-drone-detection/
-├── README.md                          # This file
-├── requirements.txt                   # Python dependencies
-├── .gitignore                        # Git ignore rules
-├── images/                           # Generated visualization outputs
-│   ├── sensor_coverage.png           # Sensor array coverage visualization
-│   ├── trajectory_*.png              # Drone trajectory visualizations
-│   ├── detection_range_explanation.png # Representative detection range analysis
-│   ├── camera_*_detection_range.png  # Individual camera detection profiles
-│   └── detection_range_summary_all_cameras.png # Summary comparison
-├── src/                              # Source code
-│   ├── __init__.py                   # Package initialization
-│   ├── drone_trajectory_generator.py # Drone movement simulation
-│   ├── sensor_simulation.py          # Virtual sensor arrays with detection range analysis
-│   └── volumetric_detection.py       # 3D detection pipeline (validated)
-├── test_visualization.py             # Enhanced visualization testing with detection range analysis
-├── debug_test.py                     # Quick diagnostic test
-├── quick_validation_test_optimized.py # Validated functionality test
-├── safe_integration_test.py          # Safe comprehensive testing
-├── minimal_launcher.py               # Configurable test launcher
-├── minimal_test_results.json         # Test results data
-├── safe_integration_results.json     # Integration test results
-├── statistical_validation.py         # Monte Carlo validation engine
-├── statistical_analysis.py           # Results analysis and formatting
-├── run_statistical_validation.py     # Easy-to-use launcher
-├── statistical_validation_results_*.json  # Generated validation data
-└── __pycache__/                      # Python cache files
+├── readme.md
+├── requirements.txt
+├── src/
+│   ├── drone_trajectory_generator.py   # Swarm trajectories and flight patterns
+│   ├── sensor_simulation.py            # Camera array: noisy pixel detections only
+│   ├── camera_geometry.py              # Projection, pixel rays, ray intersection, voxel tests
+│   ├── multi_view_triangulator.py      # Cross-view association + least-squares triangulation
+│   ├── space_carving.py                # Visual-hull space carving
+│   ├── bayesian_occupancy_updater.py   # Log-odds occupancy grid
+│   ├── volumetric_detection.py         # Pipeline and hybrid fusion
+│   ├── detection_types.py              # Shared result types
+│   ├── evaluation.py                   # Scoring against ground truth
+│   ├── temporal_target_tracker.py      # Optional frame-to-frame tracking
+│   └── performance_monitor.py
+├── statistical_validation.py           # Monte Carlo validation (--seed, --runs, --workers)
+├── statistical_analysis.py             # Report, LaTeX tables, paired Wilcoxon tests
+├── run_statistical_validation.py       # Convenience wrapper
+├── make_result_figures.py              # Result figures from a validation results file
+├── results/                            # Corrected results, report and figures (seed 42)
+├── tests/
+│   └── test_detection_integrity.py
+├── test_visualization.py               # Trajectory and camera-coverage figures
+├── generate_memory_plot.py
+├── generate_all_figures.bat
+├── quick_validation_test_optimized.py
+├── minimal_launcher.py
+├── safe_integration_test.py
+└── debug_test.py
 ```
 
-## Configuration Options
-
-### Visualization Options
-```bash
-# Available flight patterns
-python test_visualization.py --list-patterns
-
-# Pattern options: coordinated, evasive, formation, perimeter, random
-# Drone count: 1-50 drones
-# Duration: 1.0-60.0 seconds
-# Drone types: small, medium, large (note: 'large' may default to 'small')
-```
-
-### Detection Range Analysis Options
-```bash
-# Individual camera analysis (technical audiences)
-python test_visualization.py --detection-analysis individual --detection-only
-
-# Representative explanation (general audiences)
-python test_visualization.py --detection-analysis representative --detection-only
-
-# Combined analysis
-python test_visualization.py --detection-analysis both --detection-only
-
-# Combined with trajectory analysis
-python test_visualization.py --drones 15 --pattern formation --detection-analysis representative
-```
-
-### Statistical Validation Options
-```bash
-# Quick validation (10 runs, ~5 minutes)
-python run_statistical_validation.py --quick
-
-# Standard validation (50 runs, ~15-20 minutes)
-python run_statistical_validation.py --standard
-
-# Thorough validation (100 runs, ~25-30 minutes) 
-python run_statistical_validation.py --thorough
-```
-
-### Simulation Bounds
-```python
-bounds = SimulationBounds(
-    x_min=0.0, x_max=1000.0,     # 1km x 1km area
-    y_min=0.0, y_max=1000.0,     
-    z_min=50.0, z_max=500.0      # 50m-500m altitude
-)
-```
-
-### Drone Types
-- **`'small'`**: 0.8m wingspan, 25 m/s max speed (recommended)
-- **`'medium'`**: 1.5m wingspan, 35 m/s max speed
-- **`'large'`**: May fallback to 'small' for compatibility
-
-### Flight Patterns
-- **`COORDINATED_ATTACK`**: Converging from perimeter
-- **`FORMATION_FLYING`**: V-formation or grid patterns
-- **`RANDOM_DISPERSAL`**: Chaotic movement patterns
-- **`EVASIVE_MANEUVERS`**: Zigzag defensive patterns
-- **`PERIMETER_SWEEP`**: Systematic area coverage
-
-### Sensor Array Types
-- **`"perimeter"`**: 8 cameras around surveillance area
-- **`"triangulation"`**: 6 cameras optimized for 3D accuracy
-- **`"mixed"`**: Combined visible and thermal sensors
-
-### Detection Methods
-- **`TRIANGULATION`**: Multi-view geometry positioning (comprehensive)
-- **`SPACE_CARVING`**: Optimized 3D reconstruction (ultra-fast, precise)
-- **`HYBRID`**: Combined approach for optimal performance
-
-## Expected Output Files
-
-After running tests, you'll generate:
-
-### Enhanced Visualization Outputs
-- `images/sensor_coverage.png` - Sensor array coverage visualization
-- `images/trajectory_[pattern]_[N]drones_[type].png` - Drone trajectory visualizations
-- Custom trajectory files based on your parameters
-
-### Detection Range Analysis Outputs
-- `images/detection_range_explanation.png` - Comprehensive detection range explanation
-- `images/camera_01_detection_range.png` through `images/camera_08_detection_range.png` - Individual camera profiles
-- `images/detection_range_summary_all_cameras.png` - Summary comparison of all cameras
-
-### Statistical Validation Outputs
-- `statistical_validation_results_[timestamp].json` - Complete validation results
-- LaTeX tables for publication (via statistical_analysis.py)
-- Console output with confidence intervals and significance testing
-
-### Quick Validation (Recommended)
-- Console output showing all three detection methods with measured performance ranges
-- Real-time performance metrics within validated confidence bounds
-
-### Research Validation
-- `safe_integration_results.json` - Safe research metrics
-- `minimal_test_results.json` - Minimal test results
-- Various console output logs with validated performance ranges
-
-## Performance Optimization
-
-### For Large Scenarios (50+ drones):
-```python
-# Optimize for memory usage
-detection_pipeline = VolumetricDetectionPipeline(
-    bounds, 
-    voxel_resolution=3.0,  # Lower resolution for speed
-    detection_threshold=0.6
-)
-```
-
-### For High-Accuracy Detection:
-```python
-# Optimize for accuracy
-detection_pipeline = VolumetricDetectionPipeline(
-    bounds, 
-    voxel_resolution=1.5,  # Higher resolution
-    detection_threshold=0.8
-)
-```
-
-### Visualization Best Practices:
-- **Use 8 or fewer drones** for color legend display
-- **Use 12+ drones** for pattern analysis without legend clutter
-- **Save images to `images/` folder** for organized output
-- **Use descriptive filenames** with pattern and drone count
-- **Use detection range analysis** for sensor optimization and audience education
-
-## Benchmarking Results (Statistically Validated)
-
-### Algorithm Performance (95% Confidence Intervals):
-- **Triangulation**: 61.8 ± 4.0 targets detected, 828.0 ± 112.9ms processing
-- **Space Carving**: 11.1 ± 0.3 targets detected, 23.7 ± 1.8ms processing  
-- **Hybrid**: 61.8 ± 4.0 targets detected, 868.0 ± 95.5ms processing
-- **Environmental Correlation**: r = 0.362 between visibility and detection confidence
-- **Statistical Significance**: Space carving significantly faster than alternatives (p < 0.001)
-
-### Validation Time Comparison:
-- **Quick Statistical Test**: 5 minutes for 10 scenarios
-- **Standard Validation**: 15-20 minutes for 50 scenarios
-- **Thorough Analysis**: 25-30 minutes for 100 scenarios
-- **Individual Algorithm Tests**: < 1 second per execution
-
-### Detection Performance by Method (Validated):
-- **Triangulation**: Best coverage (comprehensive detection with confidence bounds)
-- **Space Carving**: Best precision (high-confidence filtering with fastest processing)
-- **Hybrid**: Best overall (maintains comprehensive coverage with enhanced reliability)
-
-### Computational Efficiency (Measured):
-- **Space Carving**: 23.7 ± 1.8ms (ultra-fast, precision filtering)
-- **Triangulation**: 828.0 ± 112.9ms (comprehensive detection within tactical timelines)
-- **Hybrid**: 868.0 ± 95.5ms (optimal balance of speed and comprehensive coverage)
-
-### Detection Range Analysis Performance:
-- **Individual Camera Analysis**: ~1-2 seconds per camera (8 cameras total)
-- **Representative Explanation**: ~3-5 seconds for comprehensive plot
-- **Memory Usage**: ~50-100MB for detection range calculations
-- **Output Quality**: High-resolution (150 DPI) professional visualizations
-
-### Statistical Validation Performance:
-- **Monte Carlo Scenarios**: 50 scenarios with 384 total measurements
-- **Bootstrap Confidence Intervals**: 95% confidence bounds for all metrics
-- **Processing Time**: 15-20 minutes for standard validation
-- **Reproducibility**: Consistent relative performance rankings across scenarios
-
-## Troubleshooting
-
-### Common Issues
-
-#### Import Errors
-```bash
-# Verify Python path and test core imports
-python quick_validation_test_optimized.py
-```
-
-#### Detection Pipeline Issues
-```bash
-# Test individual components
-python debug_test.py
-```
-
-#### Visualization Issues
-```bash
-# Test visualization system
-python test_visualization.py --drones 5 --pattern coordinated
-```
-
-#### Detection Range Analysis Issues
-```bash
-# Test detection range analysis system
-python test_visualization.py --detection-analysis representative --detection-only
-
-# If methods not found, ensure you have the updated sensor_simulation.py
-```
-
-#### Statistical Validation Issues
-```bash
-# Quick statistical validation test
-python run_statistical_validation.py --quick
-
-# Verify statistical analysis tools
-python statistical_analysis.py --help
-```
-
-#### Pattern Not Found Errors
-```bash
-# List available patterns
-python test_visualization.py --list-patterns
-
-# Use available patterns: coordinated, evasive, formation, perimeter, random
-```
-
-#### Memory Issues for Volumetric Processing
-- Use `safe_integration_test.py` for memory-safe testing
-- Increase `voxel_resolution` (5.0-10.0 meters)
-- Reduce `num_drones` parameter
-- Use shorter simulation durations
-
-#### Performance Issues
-- Use `quick_validation_test_optimized.py` for development
-- Use `minimal_launcher.py` for custom scenarios
-- Close other applications
-- Use appropriate voxel grid resolution
-
-### Getting Help
-
-1. **Run quick validation test** for immediate feedback with validated performance ranges
-2. **Check visualization outputs** in `images/` folder
-3. **Verify system requirements** (Python 3.11+, sufficient RAM)
-4. **Use safe integration test** for comprehensive validation
-5. **Try statistical validation** with `--quick` flag first
-6. **Try different flight patterns** for various scenarios
-7. **Test detection range analysis** with `--detection-analysis representative --detection-only`
-
-## Development
-
-### Running Research Validation
-```bash
-# Quick development testing (recommended)
-python quick_validation_test_optimized.py
-
-# Statistical validation for development
-python run_statistical_validation.py --quick
-
-# Safe comprehensive testing
-python safe_integration_test.py
-
-# Custom scenario testing
-python minimal_launcher.py --resolution 10.0 --drones 8
-
-# Visualization testing
-python test_visualization.py --drones 15 --pattern formation
-
-# Detection range analysis testing
-python test_visualization.py --detection-analysis both --detection-only
-```
-
-### Adding New Flight Patterns
-1. Add new pattern to `FlightPattern` enum in `drone_trajectory_generator.py`
-2. Update pattern mapping in `test_visualization.py`
-3. Test with `python test_visualization.py --pattern new_pattern`
-
-### Performance Profiling
-```python
-import time
-start_time = time.time()
-detected_targets = detection_pipeline.process_sensor_observations_parallel(observations, timestamp, method)
-processing_time = time.time() - start_time
-print(f"Detection time: {processing_time:.3f} seconds")
-# Compare with validated ranges: Triangulation ~800-900ms, Space carving ~20-30ms
-```
-
-### Development Workflow
-```bash
-# Quick iteration during development
-python quick_validation_test_optimized.py
-
-# Statistical validation during development
-python run_statistical_validation.py --quick
-
-# Visualization testing during development
-python test_visualization.py --drones 8 --pattern random
-
-# Detection range analysis during development
-python test_visualization.py --detection-analysis representative --detection-only
-
-# Algorithm testing
-python debug_test.py
-
-# Safe comprehensive validation
-python safe_integration_test.py
-```
-
-## Research Applications
-
-This framework is designed for academic research in:
-- Counter-UAS system development with validated performance metrics
-- Multi-target tracking algorithms with statistical confidence bounds
-- Real-time 3D detection methods with measured processing times
-- Swarm behavior analysis with comprehensive visualization tools
-- Sensor fusion techniques with environmental correlation analysis
-- Drone flight pattern analysis with statistical validation
-- Visualization of complex multi-agent systems
-- **Sensor placement optimization and detection range analysis**
-- **Camera array configuration and performance evaluation**
-- **Detection capability assessment under various environmental conditions**
-- **Statistical validation methodology for algorithm performance claims**
-
-## Research Findings (Statistically Validated)
-
-### Algorithm Performance (Monte Carlo Validated):
-- **All three detection methods** validated through 50 Monte Carlo scenarios (n=384)
-- **Triangulation method** provides comprehensive coverage (61.8 ± 4.0 targets, 828.0 ± 112.9ms)
-- **Space carving method** offers fastest processing (11.1 ± 0.3 targets, 23.7 ± 1.8ms)
-- **Hybrid approach** maintains comprehensive detection (61.8 ± 4.0 targets, 868.0 ± 95.5ms)
-- **Environmental correlation** shows moderate visibility-confidence relationship (r = 0.362)
-
-### Computational Performance:
-- **Space carving optimization** provides fastest processing with precision filtering
-- **Safe parameter selection** enables reliable testing across desktop hardware
-- **Desktop hardware** capable of real-time processing within measured confidence bounds
-- **Memory usage** optimized for practical scenarios with predictable scaling
-- **All methods** suitable for real-time applications within validated performance ranges
-
-### Statistical Validation Insights:
-- **Monte Carlo methodology** provides robust confidence interval estimation
-- **Bootstrap resampling** addresses non-normal distribution characteristics in performance data
-- **Paired t-testing** confirms significant performance differences between methods
-- **Environmental parameter correlation** quantifies visibility impact on detection confidence
-- **Reproducible evaluation protocols** support comparative algorithm assessment
-
-### Visualization Insights:
-- **Pattern differentiation** clearly visible in 3D trajectories
-- **Scalable legend management** for different swarm sizes
-- **Professional quality** visualizations suitable for research publication
-- **Comprehensive sensor coverage** visualization for array validation
-
-### Detection Range Analysis Insights:
-- **Individual camera performance** varies based on position and orientation
-- **Environmental factors** significantly impact detection range and confidence
-- **Optimal sensor placement** can be determined through range analysis
-- **Detection capabilities** clearly visualized for technical and non-technical audiences
-- **Performance metrics** provide quantitative assessment of sensor array effectiveness
-
-### Recent Breakthroughs (Validated):
-- **Statistical validation framework**: All performance claims now supported by rigorous testing
-- **Confidence interval estimation**: Bootstrap methodology provides robust uncertainty quantification
-- **Environmental correlation analysis**: Quantified relationship between conditions and performance
-- **Reproducible evaluation protocols**: Standardized methodology for algorithm comparison
-- **Publication-ready statistical reporting**: LaTeX table generation for research papers
-
-## Research Use Cases
-
-### Academic Research Applications
-
-#### Multi-Drone Detection Research
-```bash
-# Analyze detection capabilities for different swarm scenarios with statistical validation
-python test_visualization.py --drones 20 --pattern coordinated --detection-analysis both
-
-# Validate algorithm performance with confidence bounds
-python run_statistical_validation.py --standard
-
-# Study sensor array effectiveness for surveillance applications
-python test_visualization.py --detection-analysis individual --detection-only
-```
-
-#### Sensor Optimization Studies
-```bash
-# Compare different sensor configurations
-python test_visualization.py --detection-analysis representative --detection-only
-
-# Analyze environmental impact on detection with measured correlation
-# (Environmental correlation r = 0.362 between visibility and confidence)
-```
-
-#### Swarm Behavior Analysis
-```bash
-# Study different swarm patterns with statistical validation
-python test_visualization.py --drones 25 --pattern evasive
-python test_visualization.py --drones 20 --pattern formation
-python test_visualization.py --drones 12 --pattern perimeter
-```
-
-#### Algorithm Performance Evaluation
-```bash
-# Compare detection algorithms with confidence intervals
-python quick_validation_test_optimized.py
-
-# Comprehensive statistical performance analysis
-python run_statistical_validation.py --thorough
-
-# Generate publication-ready statistical tables
-python statistical_analysis.py results.json --latex-only
-```
-
-### Publication-Ready Outputs
-
-The system generates publication-ready visualizations and statistical analysis suitable for:
-- **Academic papers**: High-resolution trajectory and sensor coverage plots with statistical confidence bounds
-- **Technical reports**: Detailed detection range analysis and performance metrics with validated uncertainty
-- **Conference presentations**: Clear, professional visualizations with explanatory statistical analysis
-- **Research proposals**: Demonstrable system capabilities and statistically validated performance data
-
-### Educational Applications
-
-#### Technical Training
-- **Engineering students**: Individual camera detection range analysis with measured performance bounds
-- **System operators**: Representative detection range explanations with environmental correlation data
-- **Researchers**: Comprehensive algorithm performance comparisons with statistical significance testing
-
-#### Demonstration Scenarios
-- **Live demos**: Quick validation tests showing real-time performance within validated ranges
-- **Academic presentations**: Professional visualizations with statistical confidence intervals
-- **Training materials**: Step-by-step analysis workflows with reproducible statistical methodology
-
-## License
-
-This project is developed for academic research purposes. See LICENSE file for details.
-
-## Contributing
-
-This is an academic research project. For questions or collaboration inquiries, please open an issue or contact the author.
-
----
-
-**System Requirements**: Python 3.11+, 8GB+ RAM, Multi-core CPU, Windows/macOS/Linux  
-**Performance**: All detection methods validated through statistical testing with confidence bounds  
-**Status**: Fully functional volumetric detection pipeline with statistical validation framework  
-**New Features**: Monte Carlo validation methodology, confidence interval estimation, environmental correlation analysis, publication-ready statistical reporting
+## Limitations
+
+- Idealised environment: no terrain, buildings, clutter or false-alarm sources; homogeneous
+  atmosphere; visible-spectrum cameras only.
+- The camera model rotates in yaw only and uses an angular projection, not a full pinhole model
+  with lens distortion.
+- Detection is single-frame; the optional tracker is not part of the validation.
+- The visibility model never removes a detection at the simulated visibility values, so these
+  results say nothing about performance in poor weather.
+- Hybrid fusion weights and detector thresholds are untuned defaults.
+- The voxel methods are not real-time as implemented in Python.

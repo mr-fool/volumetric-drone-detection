@@ -131,9 +131,9 @@ class StatisticalAnalyzer:
             "\\midrule"
         ]
         
-        for corr_name, corr_value in self.correlations.items():
+        for corr_name, corr_value, _p in self._corr_items():
             # Format correlation name
-            display_name = corr_name.replace('_', ' ').title()
+            display_name = corr_name.replace('_', ' ').replace(':', ': ').title()
             
             # Interpret correlation strength
             abs_r = abs(corr_value)
@@ -158,6 +158,36 @@ class StatisticalAnalyzer:
         
         return '\n'.join(latex_lines)
     
+    def _corr_items(self):
+        """Yield (name, r, p) for old (float) and new ({'spearman_r','p_value'}) formats."""
+        for name, v in self.correlations.items():
+            if isinstance(v, dict):
+                yield name, v.get('spearman_r'), v.get('p_value')
+            else:
+                yield name, v, None
+
+    def generate_accuracy_table(self) -> str:
+        """LaTeX table of detection accuracy against ground truth (mean [95% CI])."""
+        cols = [('precision', 'Precision', 3), ('recall', 'Recall', 3), ('f1', 'F1', 3),
+                ('mean_error_m', 'Error (m)', 2), ('fp', 'FP/frame', 2)]
+        if not any(c[0] in st for st in self.method_stats.values() for c in cols):
+            return "% No ground-truth accuracy data in this results file"
+        lines = ["\\begin{table}[htbp]", "\\centering",
+                 "\\caption{Detection Accuracy Against Ground Truth (mean [95\\% CI] over scenarios)}",
+                 "\\begin{tabular}{l" + "c" * len(cols) + "}", "\\toprule",
+                 "Method & " + " & ".join(c[1] for c in cols) + " \\\\", "\\midrule"]
+        for method, st in self.method_stats.items():
+            cells = []
+            for key, _, prec in cols:
+                if key in st:
+                    m = st[key]; lo, hi = m['confidence_interval']
+                    cells.append(f"{m['mean']:.{prec}f} [{lo:.{prec}f}, {hi:.{prec}f}]")
+                else:
+                    cells.append("--")
+            lines.append(method.replace('_', ' ').title() + " & " + " & ".join(cells) + " \\\\")
+        lines += ["\\bottomrule", "\\end{tabular}", "\\label{tab:accuracy}", "\\end{table}"]
+        return "\n".join(lines)
+
     def generate_text_summary(self) -> str:
         """
         Generate text summary suitable for paper's results section
@@ -205,6 +235,20 @@ class StatisticalAnalyzer:
                 
                 lines.append(f"- {method_display}: μ = {ci_str} targets (95% CI, n={n})")
         
+        # Accuracy against ground truth
+        acc_keys = [('precision', 'precision', 3), ('recall', 'recall', 3), ('recall_observable', 'recall (seen by >=2 cameras)', 3),
+                    ('f1', 'F1', 3), ('mean_error_m', 'mean position error (m)', 2), ('fp', 'false positives per frame', 2)]
+        if any(k in st for st in self.method_stats.values() for k, _, _ in acc_keys):
+            lines.append("")
+            lines.append("Detection Accuracy Against Ground Truth:")
+            for method, st in self.method_stats.items():
+                parts = []
+                for key, label, prec in acc_keys:
+                    if key in st:
+                        m = st[key]; lo, hi = m['confidence_interval']
+                        parts.append(f"{label} {m['mean']:.{prec}f} [{lo:.{prec}f}, {hi:.{prec}f}]")
+                lines.append(f"- {method.replace('_', ' ').capitalize()}: " + "; ".join(parts))
+
         # Statistical comparisons
         if len(self.method_stats) >= 2:
             lines.append("")
@@ -215,9 +259,10 @@ class StatisticalAnalyzer:
         if self.correlations:
             lines.append("")
             lines.append("Environmental Correlation Analysis:")
-            for corr_name, corr_value in self.correlations.items():
+            for corr_name, r, pval in self._corr_items():
                 display_name = corr_name.replace('_', ' ')
-                lines.append(f"- {display_name}: r = {corr_value:.3f}")
+                ptxt = f" (p = {pval:.3g})" if pval is not None else ""
+                lines.append(f"- {display_name}: r = {r:.3f}{ptxt}")
         
         return '\n'.join(lines)
     
@@ -261,62 +306,59 @@ class StatisticalAnalyzer:
                     f"- {fastest_method.replace('_', ' ').capitalize()} demonstrates {speedup:.1f}x faster processing than {slowest_method.replace('_', ' ')}"
                 )
         
-        # Detection count comparisons
-        if len(detection_counts) >= 2:
-            methods = list(detection_counts.keys())
-            best_method = max(methods, key=lambda m: detection_counts[m]['mean'])
-            worst_method = min(methods, key=lambda m: detection_counts[m]['mean'])
-            
-            if best_method != worst_method:
-                best_count = detection_counts[best_method]['mean']
-                worst_count = detection_counts[worst_method]['mean']
-                improvement = (best_count - worst_count) / worst_count * 100
-                
+        # Accuracy comparison (more detections is not better: ghosts count as detections)
+        f1 = {m: st['f1']['mean'] for m, st in self.method_stats.items() if 'f1' in st}
+        if len(f1) >= 2:
+            best = max(f1, key=f1.get); worst = min(f1, key=f1.get)
+            if best != worst:
                 comparisons.append(
-                    f"- {best_method.replace('_', ' ').capitalize()} detects {improvement:.0f}% more targets than {worst_method.replace('_', ' ')}"
-                )
-        
+                    f"- {best.replace('_', ' ').capitalize()} has the highest F1 ({f1[best]:.3f}); "
+                    f"{worst.replace('_', ' ')} the lowest ({f1[worst]:.3f})")
+
         return '\n'.join(comparisons) if comparisons else "No significant differences detected."
     
-    def perform_significance_tests(self) -> Dict[str, float]:
+    def perform_significance_tests(self) -> Dict[str, Dict]:
         """
-        Perform statistical significance tests between methods
-        Note: This is a simplified approach - in practice you'd need the raw data
+        Paired Wilcoxon signed-rank tests between methods on per-scenario means
+        (each scenario is run through every method on identical sensor data).
+        Needs raw_results in the results file; otherwise falls back to a
+        CI-overlap check, which is only a rough indication.
         """
-        significance_results = {}
-        
-        # This would require access to raw data for proper t-tests
-        # For now, we estimate based on confidence intervals
+        raw = self.results.get('raw_results', [])
         methods = list(self.method_stats.keys())
-        
-        if len(methods) >= 2:
-            for i, method1 in enumerate(methods):
-                for j in range(i + 1, len(methods)):
-                    method2 = methods[j]
-                    
-                    # Compare processing times if available
-                    if ('processing_time' in self.method_stats[method1] and 
-                        'processing_time' in self.method_stats[method2]):
-                        
-                        pt1 = self.method_stats[method1]['processing_time']
-                        pt2 = self.method_stats[method2]['processing_time']
-                        
-                        # Check if confidence intervals overlap
-                        ci1 = pt1['confidence_interval_ms']
-                        ci2 = pt2['confidence_interval_ms']
-                        
-                        # If CIs don't overlap, difference is likely significant
-                        no_overlap = (ci1[1] < ci2[0]) or (ci2[1] < ci1[0])
-                        
-                        comparison_name = f"{method1}_vs_{method2}_processing_time"
-                        significance_results[comparison_name] = {
-                            'likely_significant': no_overlap,
-                            'method1_ci': ci1,
-                            'method2_ci': ci2
-                        }
-        
-        return significance_results
-    
+        out = {}
+        metrics = [('processing_times', 'processing_time'), ('f1', 'f1'), ('mean_error_m', 'position_error')]
+        if raw and all('method_results' in r for r in raw):
+            def per_scenario(method, key):
+                vals = []
+                for r in raw:
+                    v = r['method_results'].get(method, {}).get(key, [])
+                    v = [x for x in v if x is not None and np.isfinite(x)]
+                    vals.append(np.mean(v) if v else np.nan)
+                return np.array(vals)
+            for i, m1 in enumerate(methods):
+                for m2 in methods[i + 1:]:
+                    for key, label in metrics:
+                        a, b = per_scenario(m1, key), per_scenario(m2, key)
+                        ok = np.isfinite(a) & np.isfinite(b)
+                        if ok.sum() < 6 or np.allclose(a[ok], b[ok]):
+                            continue
+                        res = stats.wilcoxon(a[ok], b[ok])
+                        out[f"{m1}_vs_{m2}_{label}"] = {
+                            'test': 'Wilcoxon signed-rank (paired by scenario)',
+                            'n': int(ok.sum()), 'p_value': float(res.pvalue),
+                            'median_difference': float(np.median(a[ok] - b[ok])),
+                            'likely_significant': bool(res.pvalue < 0.05)}
+            return out
+        for i, m1 in enumerate(methods):
+            for m2 in methods[i + 1:]:
+                if 'processing_time' in self.method_stats[m1] and 'processing_time' in self.method_stats[m2]:
+                    ci1 = self.method_stats[m1]['processing_time']['confidence_interval_ms']
+                    ci2 = self.method_stats[m2]['processing_time']['confidence_interval_ms']
+                    out[f"{m1}_vs_{m2}_processing_time"] = {
+                        'test': 'CI overlap (rough)', 'likely_significant': (ci1[1] < ci2[0]) or (ci2[1] < ci1[0])}
+        return out
+
     def generate_complete_report(self, output_file: str = None) -> str:
         """
         Generate complete statistical analysis report
@@ -356,6 +398,9 @@ class StatisticalAnalyzer:
             "Detection Count Table:",
             self.generate_detection_count_table(),
             "",
+            "Detection Accuracy Table:",
+            self.generate_accuracy_table(),
+            "",
             "Correlation Analysis Table:",
             self.generate_correlation_table(),
             ""
@@ -369,7 +414,9 @@ class StatisticalAnalyzer:
                 "=" * 50
             ])
             for test_name, result in significance_results.items():
-                report_lines.append(f"{test_name}: {'Likely significant' if result['likely_significant'] else 'Not significant'}")
+                verdict = 'Significant' if result['likely_significant'] else 'Not significant'
+                detail = f" (p = {result['p_value']:.3g}, n = {result['n']}, {result['test']})" if 'p_value' in result else f" ({result['test']})"
+                report_lines.append(f"{test_name}: {verdict}{detail}")
         
         complete_report = '\n'.join(report_lines)
         

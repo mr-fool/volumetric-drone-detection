@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from drone_trajectory_generator import DroneSwarmGenerator, FlightPattern, SimulationBounds
 from sensor_simulation import create_standard_sensor_array
 from volumetric_detection import VolumetricDetectionPipeline, DetectionMethod
+from evaluation import score_frame, observable_drones
 
 @dataclass
 class StatisticalResults:
@@ -55,9 +56,12 @@ class StatisticalValidator:
     Main class for conducting statistical validation of detection algorithms
     """
     
-    def __init__(self, confidence_level: float = 0.95, num_monte_carlo_runs: int = 50):
+    def __init__(self, confidence_level: float = 0.95, num_monte_carlo_runs: int = 50, seed: int = 42):
         self.confidence_level = confidence_level
         self.num_runs = num_monte_carlo_runs
+        # Master seed: scenario list, per-scenario seeds and (via the sensor
+        # array) per-camera noise streams are all derived from it.
+        self.seed = seed
         self.results_history = []
         
         # Base simulation setup
@@ -89,8 +93,8 @@ class StatisticalValidator:
                 nz = int(np.ceil(z_range / resolution))
                 total_voxels = nx * ny * nz
                 
-                # Estimate memory (3 arrays: occupancy, confidence, timestamps)
-                memory_mb = total_voxels * 3 * 8 / (1024 * 1024)  # 8 bytes per float64
+                # One float32 log-odds array per grid
+                memory_mb = total_voxels * 4 / (1024 * 1024)
                 
                 # Test if resolution is practically feasible
                 feasible = memory_mb < 500  # 500MB threshold
@@ -174,7 +178,7 @@ class StatisticalValidator:
             {'drones': 10, 'pattern': FlightPattern.RANDOM_DISPERSAL, 'resolution': 6.0}
         ]
         
-        np.random.seed(42)  # Fixed seed for reproducibility
+        np.random.seed(self.seed)  # master seed -> scenario list
         
         for run_id in range(self.num_runs):
             # Select base scenario randomly
@@ -210,87 +214,56 @@ class StatisticalValidator:
         
         return scenarios
     
-    def run_single_validation_scenario(self, scenario: ValidationScenario) -> Dict[str, Any]:
+    METHODS = [DetectionMethod.TRIANGULATION, DetectionMethod.SPACE_CARVING,
+               DetectionMethod.OCCUPANCY_GRID, DetectionMethod.HYBRID]
+    METRICS = ['precision', 'recall', 'recall_observable', 'f1', 'mean_error_m', 'fp']
+
+    def run_single_validation_scenario(self, scenario: ValidationScenario, seed: int = None) -> Dict[str, Any]:
         """
-        Run a single validation scenario and collect performance metrics
+        Run one scenario. Every method sees the *same* sensor observations in
+        each frame, and every output is scored against the true drone positions.
         """
         try:
-            # Setup for this scenario
+            if seed is not None:
+                np.random.seed(seed)
             sensor_array = create_standard_sensor_array(self.bounds, "perimeter")
-            detection_pipeline = VolumetricDetectionPipeline(
-                self.bounds, 
-                voxel_resolution=scenario.voxel_resolution
-            )
-            
-            # Apply environmental degradation
             sensor_array.weather_conditions['visibility'] = 1.0 - scenario.environmental_factor * 0.6
             sensor_array.weather_conditions['wind_speed'] = 5.0 + scenario.environmental_factor * 10.0
-            
-            # Generate trajectory data
+            sensor_array.noise_multiplier = scenario.noise_level  # actually scales pixel noise
+
             trajectory_data = self.drone_generator.generate_swarm_trajectories(
-                num_drones=scenario.num_drones,
-                pattern=scenario.pattern,
-                duration=scenario.duration,
-                timestep=0.5,
-                drone_type='small'
-            )
-            
+                num_drones=scenario.num_drones, pattern=scenario.pattern,
+                duration=scenario.duration, timestep=0.5, drone_type='small')
             trajectories = trajectory_data['trajectories']
             times = trajectory_data['times']
-            
-            # Test each detection method
+            num_frames = min(len(times), 8)
+
+            # Observations generated once per frame and shared by all methods
+            frames = []
+            for f in range(num_frames):
+                truth = trajectories[:, f, :]
+                obs = sensor_array.observe_targets_parallel(truth, times[f])
+                frames.append((times[f], truth, obs, observable_drones(sensor_array.last_ground_truth)))
+
+            gate = max(10.0, 2.0 * scenario.voxel_resolution)
             method_results = {}
-            methods = [DetectionMethod.TRIANGULATION, DetectionMethod.SPACE_CARVING, DetectionMethod.HYBRID]
-            
-            for method in methods:
-                method_data = {
-                    'processing_times': [],
-                    'detection_counts': [],
-                    'confidence_scores': []
-                }
-                
-                # Process multiple frames for statistical sampling
-                num_frames = min(len(times), 8)  # Process up to 8 frames
-                
-                for frame_idx in range(num_frames):
-                    drone_positions = trajectories[:, frame_idx, :]
-                    timestamp = times[frame_idx]
-                    
-                    # Generate observations with noise
-                    observations = sensor_array.observe_targets_parallel(drone_positions, timestamp)
-                    
-                    # Apply additional sensor noise
-                    for obs in observations:
-                        obs.sensor_noise_level *= scenario.noise_level
-                        if len(obs.confidence_scores) > 0:
-                            obs.confidence_scores *= np.random.uniform(0.8, 1.2, len(obs.confidence_scores))
-                            obs.confidence_scores = np.clip(obs.confidence_scores, 0.1, 0.95)
-                    
-                    # Time the detection process
-                    start_time = time.time()
-                    
-                    if method == DetectionMethod.SPACE_CARVING:
-                        detected_targets = detection_pipeline._parallel_space_carving(
-                            observations, timestamp, max_workers=8
-                        )
-                    else:
-                        detected_targets = detection_pipeline.process_sensor_observations_parallel(
-                            observations, timestamp, method
-                        )
-                    
-                    processing_time = (time.time() - start_time) * 1000  # Convert to ms
-                    
-                    # Collect metrics
-                    method_data['processing_times'].append(processing_time)
-                    method_data['detection_counts'].append(len(detected_targets))
-                    
-                    # Collect confidence scores
-                    if hasattr(detected_targets, '__iter__') and detected_targets:
-                        confidences = [getattr(target, 'confidence', 0.5) for target in detected_targets]
-                        method_data['confidence_scores'].extend(confidences)
-                
-                method_results[method.value] = method_data
-            
+            for method in self.METHODS:
+                pipeline = VolumetricDetectionPipeline(self.bounds, voxel_resolution=scenario.voxel_resolution)
+                data = defaultdict(list)
+                for timestamp, truth, obs, observable in frames:
+                    start = time.perf_counter()
+                    targets = pipeline.detect(obs, timestamp, method)
+                    data['processing_times'].append((time.perf_counter() - start) * 1000)
+                    data['detection_counts'].append(len(targets))
+                    data['confidence_scores'].extend(float(t.confidence) for t in targets)
+                    sc = score_frame(targets, truth, gate_m=gate, observable=observable)
+                    for m in self.METRICS:
+                        data[m].append(sc[m])
+                    data['n_true'].append(sc['n_true'])
+                    data['n_observable'].append(sc['n_observable'])
+                    data['position_errors_m'].extend(sc['errors_m'])
+                method_results[method.value] = dict(data)
+
             return {
                 'scenario_id': scenario.scenario_id,
                 'scenario_params': {
@@ -299,250 +272,162 @@ class StatisticalValidator:
                     'duration': scenario.duration,
                     'voxel_resolution': scenario.voxel_resolution,
                     'environmental_factor': scenario.environmental_factor,
-                    'noise_level': scenario.noise_level
+                    'visibility': 1.0 - scenario.environmental_factor * 0.6,
+                    'noise_level': scenario.noise_level,
+                    'match_gate_m': gate,
                 },
                 'method_results': method_results,
                 'success': True
             }
-            
         except Exception as e:
-            return {
-                'scenario_id': scenario.scenario_id,
-                'error': str(e),
-                'success': False
-            }
-    
+            import traceback
+            return {'scenario_id': scenario.scenario_id, 'error': f"{e}\n{traceback.format_exc()}",
+                    'success': False}
+
     def run_monte_carlo_validation(self, parallel: bool = True, max_workers: int = 4) -> Dict[str, Any]:
-        """
-        Run complete Monte Carlo validation with statistical analysis
-        """
+        """Run the Monte Carlo validation (scenarios in separate processes, each seeded)."""
         print(f"Starting Monte Carlo validation with {self.num_runs} runs...")
         print(f"Confidence level: {self.confidence_level * 100}%")
         print(f"Parallel processing: {'Yes' if parallel else 'No'}")
         print("=" * 60)
-        
-        # Generate randomized scenarios
+
         scenarios = self.generate_randomized_scenarios()
-        
-        # Run scenarios
+        # Independent per-scenario seeds derived from the master seed, so the
+        # result does not depend on worker count or execution order.
+        scenario_seeds = [int(ss.generate_state(1)[0]) for ss in np.random.SeedSequence(self.seed).spawn(len(scenarios))]
+        jobs = list(zip(scenarios, scenario_seeds))
+        results = []
         if parallel and max_workers > 1:
-            # Parallel execution
-            results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_scenario = {
-                    executor.submit(self.run_single_validation_scenario, scenario): scenario 
-                    for scenario in scenarios
-                }
-                
-                completed = 0
-                for future in concurrent.futures.as_completed(future_to_scenario):
-                    result = future.result()
-                    results.append(result)
-                    completed += 1
-                    if completed % 10 == 0 or completed == len(scenarios):
-                        print(f"Completed {completed}/{len(scenarios)} scenarios...")
+            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as ex:
+                futs = [ex.submit(_run_scenario_job, self.confidence_level, s, seed) for s, seed in jobs]
+                for done, fut in enumerate(concurrent.futures.as_completed(futs), 1):
+                    results.append(fut.result())
+                    if done % 10 == 0 or done == len(jobs):
+                        print(f"Completed {done}/{len(jobs)} scenarios...")
         else:
-            # Sequential execution
-            results = []
-            for i, scenario in enumerate(scenarios):
-                print(f"Processing scenario {i+1}/{len(scenarios)}: {scenario.scenario_id}")
-                result = self.run_single_validation_scenario(scenario)
-                results.append(result)
-        
-        # Process results and calculate statistics
+            for i, (s, seed) in enumerate(jobs):
+                print(f"Processing scenario {i+1}/{len(jobs)}: {s.scenario_id}")
+                results.append(self.run_single_validation_scenario(s, seed))
+        results.sort(key=lambda r: r['scenario_id'])
+
         successful_results = [r for r in results if r.get('success', False)]
-        
+        failed = [r for r in results if not r.get('success', False)]
         print(f"\nSuccessful runs: {len(successful_results)}/{len(results)}")
-        
+        for r in failed[:3]:
+            print(f"  {r['scenario_id']} failed: {r.get('error', '')[:300]}")
         if len(successful_results) < 10:
             print("WARNING: Too few successful runs for reliable statistics")
-        
-        # Aggregate data by method
+
         method_statistics = self._calculate_method_statistics(successful_results)
-        
-        # Calculate correlation analysis
         correlation_results = self._calculate_environmental_correlations(successful_results)
-        
-        # Generate final validation report
+
         validation_report = {
             'timestamp': datetime.now().isoformat(),
             'configuration': {
                 'num_runs': self.num_runs,
                 'successful_runs': len(successful_results),
                 'confidence_level': self.confidence_level,
-                'parallel_execution': parallel
+                'parallel_execution': parallel,
+                'master_seed': self.seed,
+                'ci_method': 'bootstrap over per-scenario means (scenario = independent unit)',
             },
             'method_statistics': method_statistics,
             'correlation_analysis': correlation_results,
-            'raw_results': successful_results[:10]  # Include first 10 for reference
+            'raw_results': successful_results,
         }
-        
-        # Save results
         output_file = f'statistical_validation_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
         with open(output_file, 'w') as f:
             json.dump(validation_report, f, indent=2, default=str)
-        
         print(f"\nValidation completed! Results saved to: {output_file}")
-        
-        # Print summary statistics
         self._print_validation_summary(method_statistics, correlation_results)
-        
         return validation_report
-    
+
     def _calculate_method_statistics(self, results: List[Dict]) -> Dict[str, Dict]:
         """
-        Calculate comprehensive statistics for each detection method
+        Frames within a scenario are correlated, so each scenario contributes one
+        mean per metric and bootstrap CIs are computed over scenarios
+        (sample_size = number of scenarios). Position error is also reported
+        pooled over all matched detections for its distribution.
         """
-        # Aggregate all data by method
-        method_data = defaultdict(lambda: {
-            'processing_times': [],
-            'detection_counts': [],
-            'confidence_scores': []
-        })
-        
-        for result in results:
-            method_results = result.get('method_results', {})
-            for method_name, method_metrics in method_results.items():
-                method_data[method_name]['processing_times'].extend(
-                    method_metrics.get('processing_times', [])
-                )
-                method_data[method_name]['detection_counts'].extend(
-                    method_metrics.get('detection_counts', [])
-                )
-                method_data[method_name]['confidence_scores'].extend(
-                    method_metrics.get('confidence_scores', [])
-                )
-        
-        # Calculate statistics for each method
+        per_method = defaultdict(lambda: defaultdict(list))
+        pooled_err = defaultdict(list)
+        for r in results:
+            for name, d in r.get('method_results', {}).items():
+                for key in ['processing_times', 'detection_counts'] + self.METRICS:
+                    vals = [v for v in d.get(key, []) if v is not None and not (isinstance(v, float) and np.isnan(v))]
+                    if vals:
+                        per_method[name][key].append(float(np.mean(vals)))
+                pooled_err[name].extend(d.get('position_errors_m', []))
+
         statistics = {}
-        
-        for method_name, data in method_data.items():
-            method_stats = {}
-            
-            # Processing time statistics
-            if data['processing_times']:
-                processing_stats = self.calculate_confidence_interval(
-                    data['processing_times'], method='bootstrap'
-                )
-                method_stats['processing_time'] = {
-                    'mean_ms': processing_stats.mean,
-                    'std_ms': processing_stats.std,
-                    'confidence_interval_ms': processing_stats.confidence_interval,
-                    'sample_size': processing_stats.sample_size
-                }
-            
-            # Detection count statistics
-            if data['detection_counts']:
-                detection_stats = self.calculate_confidence_interval(
-                    data['detection_counts'], method='bootstrap'
-                )
-                method_stats['detection_count'] = {
-                    'mean': detection_stats.mean,
-                    'std': detection_stats.std,
-                    'confidence_interval': detection_stats.confidence_interval,
-                    'sample_size': detection_stats.sample_size
-                }
-            
-            # Confidence score statistics
-            if data['confidence_scores']:
-                confidence_stats = self.calculate_confidence_interval(
-                    data['confidence_scores'], method='bootstrap'
-                )
-                method_stats['confidence_score'] = {
-                    'mean': confidence_stats.mean,
-                    'std': confidence_stats.std,
-                    'confidence_interval': confidence_stats.confidence_interval,
-                    'sample_size': confidence_stats.sample_size
-                }
-            
-            statistics[method_name] = method_stats
-        
+        for name, d in per_method.items():
+            st = {}
+            if d['processing_times']:
+                ci = self.calculate_confidence_interval(d['processing_times'], method='bootstrap')
+                st['processing_time'] = {'mean_ms': ci.mean, 'std_ms': ci.std,
+                                         'confidence_interval_ms': ci.confidence_interval,
+                                         'sample_size': ci.sample_size}
+            for key, out in [('detection_counts', 'detection_count')] + [(m, m) for m in self.METRICS]:
+                if d[key]:
+                    ci = self.calculate_confidence_interval(d[key], method='bootstrap')
+                    st[out] = {'mean': ci.mean, 'std': ci.std,
+                               'confidence_interval': ci.confidence_interval,
+                               'sample_size': ci.sample_size}
+            if pooled_err[name]:
+                e = np.array(pooled_err[name])
+                st['position_error_distribution_m'] = {
+                    'median': float(np.median(e)), 'p90': float(np.percentile(e, 90)),
+                    'rmse': float(np.sqrt(np.mean(e ** 2))), 'n_matches': int(len(e))}
+            statistics[name] = st
         return statistics
-    
+
     def _calculate_environmental_correlations(self, results: List[Dict]) -> Dict[str, float]:
-        """
-        Calculate correlations between environmental factors and detection performance
-        """
-        correlations = {}
-        
-        # Collect environmental factors and performance metrics
-        environmental_factors = []
-        visibility_factors = []
-        confidence_scores = []
-        detection_rates = []
-        
-        for result in results:
-            env_factor = result.get('scenario_params', {}).get('environmental_factor', 0)
-            environmental_factors.append(env_factor)
-            visibility_factors.append(1.0 - env_factor * 0.6)  # Convert to visibility
-            
-            # Aggregate performance across methods
-            method_results = result.get('method_results', {})
-            all_confidences = []
-            total_detections = 0
-            
-            for method_data in method_results.values():
-                all_confidences.extend(method_data.get('confidence_scores', []))
-                total_detections += sum(method_data.get('detection_counts', []))
-            
-            avg_confidence = np.mean(all_confidences) if all_confidences else 0.0
-            confidence_scores.append(avg_confidence)
-            detection_rates.append(total_detections)
-        
-        # Calculate correlations
-        if len(visibility_factors) > 3:
-            # Visibility vs confidence correlation
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                visibility_confidence_corr, _ = stats.pearsonr(visibility_factors, confidence_scores)
-                correlations['visibility_confidence'] = float(visibility_confidence_corr)
-            
-            # Environmental factor vs detection rate correlation
-            if detection_rates:
-                env_detection_corr, _ = stats.pearsonr(environmental_factors, detection_rates)
-                correlations['environmental_detection_rate'] = float(env_detection_corr)
-        
-        return correlations
-    
+        """Per method: correlation of scenario visibility and noise with recall and position error."""
+        out = {}
+        vis = np.array([r['scenario_params']['visibility'] for r in results])
+        noise = np.array([r['scenario_params']['noise_level'] for r in results])
+        if len(results) < 4:
+            return out
+        for name in results[0]['method_results']:
+            for metric in ['recall', 'mean_error_m']:
+                y = np.array([np.nanmean(r['method_results'][name][metric]) if r['method_results'][name][metric] else np.nan
+                              for r in results])
+                for xname, x in [('visibility', vis), ('noise', noise)]:
+                    ok = np.isfinite(y)
+                    if ok.sum() > 3 and np.std(y[ok]) > 0:
+                        rho, p = stats.spearmanr(x[ok], y[ok])
+                        out[f'{name}:{xname}_vs_{metric}'] = {'spearman_r': float(rho), 'p_value': float(p)}
+        return out
+
     def _print_validation_summary(self, method_statistics: Dict, correlations: Dict):
-        """
-        Print a summary of validation results in a format suitable for research papers
-        """
         print("\n" + "=" * 80)
-        print("STATISTICAL VALIDATION SUMMARY")
+        print("STATISTICAL VALIDATION SUMMARY (mean [95% CI], CIs over scenarios)")
         print("=" * 80)
-        
-        print("\nProcessing Time Analysis (95% Confidence Intervals):")
-        print("-" * 60)
-        
-        for method, stats in method_statistics.items():
-            if 'processing_time' in stats:
-                pt_stats = stats['processing_time']
-                mean = pt_stats['mean_ms']
-                ci_lower, ci_upper = pt_stats['confidence_interval_ms']
-                n = pt_stats['sample_size']
-                
-                print(f"{method:15}: μ = {mean:5.1f} ± {(ci_upper-mean):4.1f} ms (95% CI, n={n})")
-        
-        print("\nDetection Count Analysis (95% Confidence Intervals):")
-        print("-" * 60)
-        
-        for method, stats in method_statistics.items():
-            if 'detection_count' in stats:
-                dc_stats = stats['detection_count']
-                mean = dc_stats['mean']
-                ci_lower, ci_upper = dc_stats['confidence_interval']
-                n = dc_stats['sample_size']
-                
-                print(f"{method:15}: μ = {mean:5.1f} ± {(ci_upper-mean):4.1f} targets (95% CI, n={n})")
-        
+        rows = [('precision', 'Precision', '{:.3f}'), ('recall', 'Recall (all drones)', '{:.3f}'),
+                ('recall_observable', 'Recall (seen by >=2 cams)', '{:.3f}'), ('f1', 'F1', '{:.3f}'),
+                ('mean_error_m', 'Position error (m)', '{:.2f}'), ('fp', 'False positives/frame', '{:.2f}'),
+                ('detection_count', 'Detections/frame', '{:.1f}')]
+        for name, st in method_statistics.items():
+            print(f"\n{name}")
+            if 'processing_time' in st:
+                pt = st['processing_time']; lo, hi = pt['confidence_interval_ms']
+                print(f"  {'Processing time (ms)':28}: {pt['mean_ms']:.1f} [{lo:.1f}, {hi:.1f}]  n={pt['sample_size']}")
+            for key, label, fmt in rows:
+                if key in st:
+                    m = st[key]; lo, hi = m['confidence_interval']
+                    print(f"  {label:28}: {fmt.format(m['mean'])} [{fmt.format(lo)}, {fmt.format(hi)}]")
         if correlations:
-            print("\nEnvironmental Correlation Analysis:")
-            print("-" * 60)
-            for correlation_name, correlation_value in correlations.items():
-                print(f"{correlation_name:25}: r = {correlation_value:6.3f}")
-        
+            print("\nEnvironmental sensitivity (Spearman):")
+            for k, v in correlations.items():
+                print(f"  {k:55}: r = {v['spearman_r']:6.3f} (p = {v['p_value']:.3g})")
         print("\n" + "=" * 80)
+
+
+def _run_scenario_job(confidence_level, scenario, seed):
+    """Process-pool entry point (must be module level to be picklable)."""
+    v = StatisticalValidator(confidence_level=confidence_level, num_monte_carlo_runs=1)
+    return v.run_single_validation_scenario(scenario, seed)
+
 
 def main():
     """
@@ -557,6 +442,8 @@ def main():
                        help='Confidence level (default: 0.95)')
     parser.add_argument('--workers', type=int, default=4,
                        help='Number of parallel workers (default: 4)')
+    parser.add_argument('--seed', type=int, default=42,
+                       help='Master random seed (default: 42). Use other values for robustness checks.')
     parser.add_argument('--sequential', action='store_true',
                        help='Run sequentially instead of in parallel')
     
@@ -566,6 +453,7 @@ def main():
     print("=" * 80)
     print(f"Configuration:")
     print(f"  Monte Carlo runs: {args.runs}")
+    print(f"  Master seed: {args.seed}")
     print(f"  Confidence level: {args.confidence * 100}%")
     print(f"  Parallel workers: {args.workers if not args.sequential else 'Sequential'}")
     print("=" * 80)
@@ -573,7 +461,8 @@ def main():
     # Initialize validator
     validator = StatisticalValidator(
         confidence_level=args.confidence,
-        num_monte_carlo_runs=args.runs
+        num_monte_carlo_runs=args.runs,
+        seed=args.seed
     )
     
     # Run validation

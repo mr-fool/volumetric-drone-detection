@@ -13,26 +13,7 @@ from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-# Import the DetectedTarget class (assuming it's used across modules)
-# For now, we'll define it locally to maintain compatibility
-class DetectionMethod(Enum):
-    OCCUPANCY_GRID = "occupancy_grid"
-    SPACE_CARVING = "space_carving"
-    TRIANGULATION = "triangulation"
-    HYBRID = "hybrid"
-
-@dataclass
-class DetectedTarget:
-    """3D target detection result"""
-    position: np.ndarray  # [x, y, z] world coordinates
-    velocity: np.ndarray  # [vx, vy, vz] estimated velocity
-    confidence: float     # Overall detection confidence [0-1]
-    volume_estimate: float  # Estimated target volume (m³)
-    contributing_sensors: List[str]  # Sensor IDs that detected this target
-    detection_method: DetectionMethod  # Primary detection method used
-    covariance_matrix: np.ndarray  # Position uncertainty covariance
-    timestamp: float      # Detection timestamp
-    target_id: Optional[int] = None  # Tracking ID if available
+from detection_types import DetectionMethod, DetectedTarget
 
 @dataclass
 class TrackStatistics:

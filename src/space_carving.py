@@ -1,114 +1,82 @@
 """
-Space Carving Algorithm Module
+Space Carving (visual hull of point detections)
 
-Implements space carving algorithms for 3D reconstruction in volumetric
-motion detection systems using visual hull intersection techniques.
+A voxel survives carving only if every camera that should be able to see it
+has a detection inside the voxel's projected footprint, and at least
+`min_views` cameras do. Inputs are pixel detections plus camera calibration
+only. Because this is a hard consistency test, a single missed detection
+(e.g. poor visibility at long range) carves the drone away; that fragility is a
+real property of the method.
 
-Author: Research implementation for academic publication
+Targets are extracted from the surviving voxels with exclusive peak picking
+(camera_geometry.exclusive_peaks): best-supported voxel first, each image blob
+explaining at most one target. Plain connected-component labelling would merge
+neighbouring drones through visual-hull ghost voxels.
+
+For speed only voxels inside the detection cones of >= `min_views` cameras are
+tested (region-of-interest step); no other voxel could survive carving.
 """
 
-import numpy as np
 from typing import List
+import numpy as np
+
 from bayesian_occupancy_updater import VoxelGrid
+from camera_geometry import CameraModel, candidate_voxels, view_evidence, exclusive_peaks
+from detection_types import DetectedTarget, DetectionMethod
 
 
 class SpaceCarvingAlgorithm:
-    """Space carving implementation for 3D reconstruction"""
-    
-    def __init__(self, grid: VoxelGrid):
+    def __init__(self, grid: VoxelGrid, min_views: int = 2):
         self.grid = grid
-        self.carved_volume = np.ones(grid.dimensions, dtype=bool)
-        self.consistency_threshold = 0.6
-        
+        self.min_views = min_views
+        self.carved_volume = None
+
+    def _evaluate(self, observations):
+        obs = [o for o in observations if o.camera is not None]
+        dims = tuple(self.grid.dimensions)
+        if len(obs) < self.min_views:
+            return obs, None, np.empty(0, dtype=np.int64), None, None
+        cams = [CameraModel(o.camera) for o in obs]
+        res = self.grid.resolution
+        cand = candidate_voxels(obs, cams, self.grid.origin, res, dims, self.min_views)
+        if len(cand) == 0:
+            return obs, cams, cand, None, None
+        X = self.grid.centers(cand)
+        ev = view_evidence(obs, cams, X, res)
+        keep = np.all(ev['hit'] | ~ev['in_view'], axis=0) & (ev['hit'].sum(axis=0) >= self.min_views)
+        return obs, cams, cand, ev, keep
+
     def carve_space(self, observations: List, timestamp: float) -> np.ndarray:
-        """Perform space carving based on visual hull intersection"""
-        current_carving = np.zeros(self.grid.dimensions, dtype=bool)
-        detected_positions = []
-        sensor_positions = []
-        
-        for obs in observations:
-            if len(obs.detected_objects) > 0:
-                sensor_pos = self._estimate_sensor_position(obs.camera_id)
-                sensor_positions.append(sensor_pos)
-                for obj in obs.detected_objects:
-                    detected_positions.append(obj['world_position'])
-        
-        unique_detections = self._deduplicate_detections(detected_positions)
-        
-        if len(unique_detections) == 0:
-            return np.zeros(self.grid.dimensions, dtype=bool)
-        
-        current_carving = self._mark_detected_regions(unique_detections)
-        self.carved_volume = current_carving
-        return self.carved_volume
-    
-    def _deduplicate_detections(self, detected_positions: List) -> List:
-        """Remove duplicate detection positions"""
-        if not detected_positions:
+        """Boolean volume of voxels consistent with every view."""
+        vol = np.zeros(tuple(self.grid.dimensions), dtype=bool)
+        _, _, cand, ev, keep = self._evaluate(observations)
+        if keep is not None:
+            vol.ravel()[cand[keep]] = True
+        self.carved_volume = vol
+        return vol
+
+    def detect(self, observations: List, timestamp: float) -> List[DetectedTarget]:
+        obs, cams, cand, ev, keep = self._evaluate(observations)
+        if keep is None or not keep.any():
             return []
-        
-        unique_detections = []
-        detection_threshold = 5.0
-        
-        for det_pos in detected_positions:
-            det_pos = np.array(det_pos)
-            is_duplicate = False
-            for unique_pos in unique_detections:
-                distance = np.linalg.norm(det_pos - np.array(unique_pos))
-                if distance < detection_threshold:
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                unique_detections.append(det_pos)
-        
-        return unique_detections
-    
-    def _mark_detected_regions(self, detected_positions: List) -> np.ndarray:
-        """Mark regions around detections"""
-        carved_volume = np.zeros(self.grid.dimensions, dtype=bool)
-        
-        for det_pos in detected_positions:
-            det_pos = np.array(det_pos)
-            det_voxel = ((det_pos - self.grid.origin) / self.grid.resolution).astype(int)
-            
-            if not (0 <= det_voxel[0] < self.grid.dimensions[0] and
-                    0 <= det_voxel[1] < self.grid.dimensions[1] and
-                    0 <= det_voxel[2] < self.grid.dimensions[2]):
-                continue
-            
-            voxel_radius = int(np.ceil(5.0 / self.grid.resolution))
-            
-            x_start = max(0, det_voxel[0] - voxel_radius)
-            x_end = min(self.grid.dimensions[0], det_voxel[0] + voxel_radius + 1)
-            y_start = max(0, det_voxel[1] - voxel_radius)
-            y_end = min(self.grid.dimensions[1], det_voxel[1] + voxel_radius + 1)
-            z_start = max(0, det_voxel[2] - voxel_radius)
-            z_end = min(self.grid.dimensions[2], det_voxel[2] + voxel_radius + 1)
-            
-            for x in range(x_start, x_end):
-                for y in range(y_start, y_end):
-                    for z in range(z_start, z_end):
-                        world_pos = self.grid.origin + np.array([x, y, z]) * self.grid.resolution
-                        distance = np.linalg.norm(world_pos - det_pos)
-                        if distance <= 5.0:
-                            carved_volume[x, y, z] = True
-        
-        return carved_volume
-    
-    def _estimate_sensor_position(self, camera_id: str) -> np.ndarray:
-        """Estimate sensor position from camera ID"""
-        try:
-            cam_num = int(camera_id.split('_')[-1])
-        except (ValueError, IndexError):
-            cam_num = 0
-        
-        center_x = (self.grid.origin[0] + self.grid.dimensions[0] * self.grid.resolution) / 2
-        center_y = (self.grid.origin[1] + self.grid.dimensions[1] * self.grid.resolution) / 2
-        radius = min(self.grid.dimensions[0], self.grid.dimensions[1]) * self.grid.resolution * 0.6
-        angle = 2 * np.pi * cam_num / 8
-        cam_x = center_x + radius * np.cos(angle)
-        cam_y = center_y + radius * np.sin(angle)
-        cam_z = 100.0
-        
-        return np.array([cam_x, cam_y, cam_z])
+        sel = np.flatnonzero(keep)
+        X = self.grid.centers(cand[sel])
+        n_hit = ev['hit'][:, sel].sum(axis=0)
+        resid = ev['resid'][:, sel].sum(axis=0) / np.maximum(n_hit, 1)
+        score = n_hit * 1000.0 - resid
+        peaks = exclusive_peaks(X, ev['det'][:, sel], score, self.grid.resolution, self.min_views)
+        return peaks_to_targets(peaks, X, obs, cams, self.grid.resolution, timestamp,
+                                DetectionMethod.SPACE_CARVING)
+
+
+def peaks_to_targets(peaks, X, obs, cams, res, timestamp, method) -> List[DetectedTarget]:
+    out = []
+    for pos, members, views in peaks:
+        spread = (np.var(X[members], axis=0) if len(members) > 1 else np.zeros(3)) + res ** 2 / 12
+        conf = float(np.mean([obs[k].confidence_scores[j] for k, j in views]))
+        out.append(DetectedTarget(
+            position=pos, velocity=np.zeros(3), confidence=conf,
+            volume_estimate=float(len(members) * res ** 3),
+            contributing_sensors=[cams[k].camera_id for k, _ in views],
+            detection_method=method, covariance_matrix=np.diag(spread), timestamp=timestamp))
+    return out

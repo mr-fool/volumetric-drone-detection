@@ -14,6 +14,9 @@ from multiprocessing import cpu_count
 import time
 import os
 
+# np.trapz was removed in NumPy 2.0 in favour of np.trapezoid
+_trapezoid = getattr(np, 'trapezoid', None) or np.trapz
+
 class SensorType(Enum):
     VISIBLE_SPECTRUM = "visible"
     THERMAL_INFRARED = "thermal"
@@ -49,8 +52,10 @@ class SensorObservation:
     detected_objects: List[Dict]  # List of detected object data
     image_coordinates: np.ndarray  # 2D pixel coordinates of detections
     confidence_scores: np.ndarray  # Detection confidence [0-1]
-    range_estimates: np.ndarray  # Estimated ranges to targets
-    sensor_noise_level: float  # Current noise level
+    range_estimates: np.ndarray  # NaN for passive optical sensors (no range measurement)
+    sensor_noise_level: float  # Current environmental noise factor
+    camera: Optional['CameraPosition'] = None  # Calibration: pose + intrinsics (known to the detector)
+    pixel_noise_std: Optional[float] = None  # Calibrated 1-sigma pixel noise for this frame
 
 class VirtualSensorArray:
     """
@@ -73,6 +78,22 @@ class VirtualSensorArray:
         
         # Detection history for tracking
         self.detection_history = []
+
+        # Multiplier on pixel noise (Monte Carlo sensor-noise factor)
+        self.noise_multiplier = 1.0
+        # Detections closer than this many pixels merge into one blob
+        self.blob_merge_px = 2.0
+        # Random generator for sensor noise. Seeded from the global NumPy state
+        # at construction, so np.random.seed(...) before creating the array makes
+        # every observation reproducible. Each camera gets its own child stream
+        # per frame, so results do not depend on thread scheduling.
+        self.rng = np.random.default_rng(np.random.randint(0, 2**31 - 1))
+        # Ground truth for scoring only: camera_id -> list of drone-index lists
+        # (one list per detection, in the same order as detected_objects).
+        # Detection algorithms must never read this.
+        import threading
+        self._truth_lock = threading.Lock()
+        self.last_ground_truth = {}
         
     def add_camera(self, position: np.ndarray, orientation: np.ndarray, 
                    spec: CameraSpecification, camera_id: str) -> None:
@@ -211,8 +232,9 @@ class VirtualSensorArray:
         observations = []
         self.current_time = timestamp
         
-        for camera in self.cameras:
-            observation = self._simulate_camera_observation(camera, drone_positions, timestamp)
+        rngs = self.rng.spawn(len(self.cameras))
+        for camera, rng in zip(self.cameras, rngs):
+            observation = self._simulate_camera_observation(camera, drone_positions, timestamp, rng)
             observations.append(observation)
             
         return observations
@@ -235,13 +257,15 @@ class VirtualSensorArray:
 
         self.current_time = timestamp
 
-        def process_camera(camera):
-            """Process a single camera - same logic as the original"""
-            return self._simulate_camera_observation(camera, drone_positions, timestamp)
+        # One child generator per camera, created in camera order before any
+        # thread starts, so the noise each camera draws is independent of timing.
+        rngs = self.rng.spawn(len(self.cameras))
 
-        # Process all cameras in parallel
+        def process_camera(camera, rng):
+            return self._simulate_camera_observation(camera, drone_positions, timestamp, rng)
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(process_camera, camera) for camera in self.cameras]
+            futures = [executor.submit(process_camera, c, r) for c, r in zip(self.cameras, rngs)]
             observations = [future.result() for future in futures]
 
         return observations
@@ -249,48 +273,51 @@ class VirtualSensorArray:
 
     def _simulate_camera_observation(self, camera: CameraPosition, 
                                    drone_positions: np.ndarray,
-                                   timestamp: float) -> SensorObservation:
+                                   timestamp: float, rng=None) -> SensorObservation:
         """Simulate observation from a single camera"""
+        rng = rng if rng is not None else self.rng
         
-        detected_objects = []
-        image_coordinates = []
-        confidence_scores = []
-        range_estimates = []
-        
+        # IMPORTANT: a passive optical camera only measures where a blob appears in
+        # the image. Everything handed to the detectors must be derivable from the
+        # image: noisy pixel coordinates and a detection confidence. True 3D
+        # positions, drone identities and true ranges are ground truth and are
+        # kept separately in self.last_ground_truth for scoring only.
+        raw = []  # (noisy_pixel, confidence, drone_index)
         for i, drone_pos in enumerate(drone_positions):
-            # Check if drone is within sensor range and field of view
             detection_result = self._check_detection_feasibility(camera, drone_pos)
-            
-            if detection_result['detectable']:
-                # Calculate image coordinates
-                img_coords = self._world_to_image_coordinates(camera, drone_pos)
-                
-                # Add sensor noise
-                noisy_coords = self._add_sensor_noise(camera, img_coords)
-                
-                # Calculate range estimate with noise
-                true_range = detection_result['range']
-                range_noise = np.random.normal(0, true_range * 0.02)  # 2% range error
-                estimated_range = true_range + range_noise
-                
-                # Calculate confidence based on range, size, and conditions
-                confidence = self._calculate_detection_confidence(camera, drone_pos, detection_result)
-                
-                detected_objects.append({
-                    'drone_id': i,
-                    'world_position': drone_pos,
-                    'estimated_size': detection_result['apparent_size'],
-                    'detection_quality': detection_result['quality']
-                })
-                
-                image_coordinates.append(noisy_coords)
-                confidence_scores.append(confidence)
-                range_estimates.append(estimated_range)
-        
-        # Convert to numpy arrays
-        image_coordinates = np.array(image_coordinates) if image_coordinates else np.empty((0, 2))
-        confidence_scores = np.array(confidence_scores) if confidence_scores else np.empty(0)
-        range_estimates = np.array(range_estimates) if range_estimates else np.empty(0)
+            if not detection_result['detectable']:
+                continue
+            img_coords = self._world_to_image_coordinates(camera, drone_pos)
+            noisy_coords = self._add_sensor_noise(camera, img_coords, rng)
+            confidence = self._calculate_detection_confidence(camera, drone_pos, detection_result, rng)
+            raw.append((noisy_coords, confidence, i))
+
+        # Drones that fall within a couple of pixels of each other produce a single
+        # blob in a real image; merge them so dense formations are not unrealistically easy.
+        merged = []
+        for pix, conf, idx in raw:
+            for m in merged:
+                if np.linalg.norm(m['pixel'] - pix) < self.blob_merge_px:
+                    n = len(m['drone_ids'])
+                    m['pixel'] = (m['pixel'] * n + pix) / (n + 1)
+                    m['confidence'] = max(m['confidence'], conf)
+                    m['drone_ids'].append(idx)
+                    break
+            else:
+                merged.append({'pixel': np.array(pix, dtype=float), 'confidence': conf, 'drone_ids': [idx]})
+
+        # Detector output is an unordered set of blobs: shuffle so list order
+        # does not leak drone identity across cameras.
+        rng.shuffle(merged)
+
+        detected_objects = [{'pixel': m['pixel'], 'confidence': m['confidence']} for m in merged]
+        image_coordinates = np.array([m['pixel'] for m in merged]) if merged else np.empty((0, 2))
+        confidence_scores = np.array([m['confidence'] for m in merged]) if merged else np.empty(0)
+        # Passive optical sensors do not measure range.
+        range_estimates = np.full(len(merged), np.nan)
+
+        with self._truth_lock:
+            self.last_ground_truth[camera.camera_id] = [m['drone_ids'] for m in merged]
         
         # Calculate current sensor noise level based on conditions
         noise_level = self._calculate_environmental_noise_factor(camera)
@@ -302,7 +329,9 @@ class VirtualSensorArray:
             image_coordinates=image_coordinates,
             confidence_scores=confidence_scores,
             range_estimates=range_estimates,
-            sensor_noise_level=noise_level
+            sensor_noise_level=noise_level,
+            camera=camera,
+            pixel_noise_std=camera.spec.noise_std * (1.0 + noise_level) * self.noise_multiplier
         )
     
     def _check_detection_feasibility(self, camera: CameraPosition, 
@@ -411,7 +440,7 @@ class VirtualSensorArray:
         return np.array([0, 0])  # Default for behind camera
     
     def _add_sensor_noise(self, camera: CameraPosition, 
-                         image_coords: np.ndarray) -> np.ndarray:
+                         image_coords: np.ndarray, rng=None) -> np.ndarray:
         """Add realistic sensor noise to image coordinates"""
         
         # Environmental noise factor
@@ -421,16 +450,16 @@ class VirtualSensorArray:
         base_noise = camera.spec.noise_std
         
         # Total noise (environmental effects increase noise)
-        total_noise = base_noise * (1.0 + env_factor)
+        total_noise = base_noise * (1.0 + env_factor) * self.noise_multiplier
         
         # Add Gaussian noise
-        noise = np.random.normal(0, total_noise, 2)
+        noise = (rng if rng is not None else self.rng).normal(0, total_noise, 2)
         
         return image_coords + noise
     
     def _calculate_detection_confidence(self, camera: CameraPosition,
                                       drone_pos: np.ndarray,
-                                      detection_info: Dict) -> float:
+                                      detection_info: Dict, rng=None) -> float:
         """Calculate detection confidence score [0-1]"""
         
         base_confidence = 0.8  # Base confidence for good conditions
@@ -455,7 +484,7 @@ class VirtualSensorArray:
                       0.2 * quality_factor))
         
         # Add some random variation
-        confidence += np.random.normal(0, 0.05)
+        confidence += (rng if rng is not None else self.rng).normal(0, 0.05)
         
         return np.clip(confidence, 0.1, 0.95)  # Keep within reasonable bounds
     
@@ -496,9 +525,7 @@ class VirtualSensorArray:
             avg_confidence = np.mean([np.mean(obs.confidence_scores) 
                                     for obs in observations 
                                     if len(obs.confidence_scores) > 0])
-            avg_range = np.mean([np.mean(obs.range_estimates) 
-                               for obs in observations 
-                               if len(obs.range_estimates) > 0])
+            avg_range = float('nan')  # passive sensors: no range measurement
         else:
             avg_confidence = 0.0
             avg_range = 0.0
@@ -744,7 +771,7 @@ class VirtualSensorArray:
         max_range = max(detection_ranges) if detection_ranges else 0
         avg_range = np.mean([r for r in detection_ranges if r > 0]) if any(r > 0 for r in detection_ranges) else 0
         effective_fov = sum(1 for r in detection_ranges if r > camera.spec.max_range * 0.1)
-        coverage_area = np.trapz([r for r in detection_ranges if r > 0], dx=2) if detection_ranges else 0
+        coverage_area = _trapezoid([r for r in detection_ranges if r > 0], dx=2) if detection_ranges else 0
         
         # Add statistics text box
         stats_text = (f'Camera Specifications:\n'
